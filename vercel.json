@@ -1,0 +1,1 @@
+{"$schema":"https://openapi.vercel.sh/vercel.json","functions":{"api/**.mjs":{"runtime":"nodejs20.x"},"api/**/route.ts":{"runtime":"nodejs20.x","memory":1024,"maxDuration":60}},"buildCommand":"npm run build","installCommand":"npm ci","regions":["fra1","cdg1"],"cron":[{"path":"/api/status/reap","schedule":"0 3 * * *"}]}
