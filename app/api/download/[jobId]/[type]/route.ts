@@ -1,86 +1,79 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { loadJobStatus } from '../../../../../lib/status';
-import { getFile } from '../../../../../lib/blob';
+import { NextRequest, NextResponse } from 'next/server'
+import { loadJobStatus } from '../../../../../lib/status'
+import { getFile } from '../../../../../lib/blob'
+
+const TYPE_TO_OUTPUT_KEY: Record<string, keyof import('../../../../../lib/status').JobOutputs> = {
+  'raw-text': 'rawText',
+  'normalized-text': 'normalizedText',
+  'rewritten-text': 'rewrittenText',
+  'rendered-html': 'renderedHtml',
+  'rendered-markdown': 'renderedMarkdown',
+  'pdf-output': 'pdfOutput'
+}
 
 export async function GET(
   request: NextRequest,
   { params }: { params: { jobId: string; type: string } }
 ) {
-  const jobId = params.jobId;
-  const type = params.type;
-  
+  const { jobId, type } = params
+
+  if (!TYPE_TO_OUTPUT_KEY[type]) {
+    return NextResponse.json({ error: 'Invalid download type' }, { status: 400 })
+  }
+
   try {
-    const status = await loadJobStatus(jobId);
+    const status = await loadJobStatus(jobId)
     if (!status) {
-      return NextResponse.json({ error: 'Job not found' }, { status: 404 });
+      return NextResponse.json({ error: 'Job not found' }, { status: 404 })
     }
-    
-    let outputUrl: string | undefined;
-    
+
+    const key = TYPE_TO_OUTPUT_KEY[type]
+    const outputUrl = status.outputs[key]
+
+    if (!outputUrl) {
+      return NextResponse.json(
+        { error: `${type} not available for this job` },
+        { status: 404 }
+      )
+    }
+
+    const response = await getFile(outputUrl)
+    const blob = await response.blob()
+
+    let contentType = response.headers.get('content-type') || 'application/octet-stream'
+    let filenameBase = `${jobId}-${type}`
     switch (type) {
       case 'raw-text':
-        outputUrl = status.rawTextUrl;
-        break;
       case 'normalized-text':
-        outputUrl = status.normalizedTextUrl;
-        break;
       case 'rewritten-text':
-        outputUrl = status.rewrittenTextUrl;
-        break;
+        contentType = 'text/plain'
+        filenameBase += '.txt'
+        break
       case 'rendered-html':
-        outputUrl = status.renderedHtmlUrl;
-        break;
+        contentType = 'text/html'
+        filenameBase += '.html'
+        break
       case 'rendered-markdown':
-        outputUrl = status.renderedMarkdownUrl;
-        break;
+        contentType = 'text/markdown'
+        filenameBase += '.md'
+        break
       case 'pdf-output':
-        outputUrl = status.pdfOutputUrl;
-        break;
-      default:
-        return NextResponse.json({ error: 'Invalid download type' }, { status: 400 });
+        contentType = 'application/pdf'
+        filenameBase += '.pdf'
+        break
     }
-    
-    if (!outputUrl) {
-      return NextResponse.json({ error: `${type} not available for this job` }, { status: 404 });
-    }
-    
-    try {
-      const response = await getFile(outputUrl);
-      // response est maintenant garanti non-null car getFile lance une erreur en cas d'échec
-      
-      const blob = await response.blob();
-      
-      // Déterminer le type MIME et le nom de fichier
-      let contentType = response.headers.get('content-type') || 'application/octet-stream';
-      let filename = `${jobId}-${type}`;
-      
-      if (type === 'raw-text' || type === 'normalized-text' || type === 'rewritten-text') {
-        contentType = 'text/plain';
-        filename += '.txt';
-      } else if (type === 'rendered-html') {
-        contentType = 'text/html';
-        filename += '.html';
-      } else if (type === 'rendered-markdown') {
-        contentType = 'text/markdown';
-        filename += '.md';
-      } else if (type === 'pdf-output') {
-        contentType = 'application/pdf';
-        filename += '.pdf';
+
+    return new NextResponse(blob, {
+      headers: {
+        'Content-Type': contentType,
+        'Content-Disposition': `attachment; filename="${filenameBase}"`
       }
-      
-      // Créer une réponse avec le bon type MIME et l'en-tête de téléchargement
-      return new NextResponse(blob, {
-        headers: {
-          'Content-Type': contentType,
-          'Content-Disposition': `attachment; filename="${filename}"`,
-        },
-      });
-    } catch (error) {
-      console.error('Error fetching file:', error);
-      return NextResponse.json({ error: 'Failed to fetch file' }, { status: 500 });
-    }
+    })
   } catch (error) {
-    console.error('Error in download route:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    console.error('Download route error:', error)
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    )
   }
 }
