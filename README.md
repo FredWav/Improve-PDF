@@ -35,10 +35,14 @@ A comprehensive PDF improvement application built with Next.js that transforms P
 
 3. **Set up environment variables**
    ```bash
-   cp .env.example .env.local
+   cp .env.example .env
    ```
    
-   Fill in the required variables:
+   **📋 IMPORTANT**: Configure your API keys in the `.env` file.
+   
+   **For detailed configuration instructions, see: [CONFIGURATION_GUIDE.md](./CONFIGURATION_GUIDE.md)**
+   
+   Required variables:
    ```env
    NEXT_PUBLIC_APP_NAME=Ebook Improver
    OPENAI_API_KEY=your_openai_api_key
