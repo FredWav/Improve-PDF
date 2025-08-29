@@ -1,4 +1,5 @@
-import { del, list, put, get, type PutBlobResult } from '@vercel/blob';
+import { del, list, put, type PutBlobResult } from '@vercel/blob';
+import { headers } from 'next/headers';
 
 /**
  * Enregistre un fichier reçu (File/Blob) dans Vercel Blob.
@@ -36,30 +37,29 @@ export async function deleteBlob(urlOrPathname: string) {
 }
 
 /**
- * Récupère un fichier binaire depuis Vercel Blob
+ * Récupère un fichier depuis Vercel Blob avec fetch
  */
-export async function getFile(urlOrPathname: string): Promise<Blob | null> {
-  try {
-    const blob = await get(urlOrPathname, { token: process.env.BLOB_READ_WRITE_TOKEN });
-    return blob;
-  } catch (error) {
-    console.error("Erreur lors de la récupération du fichier:", error);
-    return null;
+export async function getFile(urlOrPathname: string): Promise<Response> {
+  const url = urlOrPathname.startsWith('http') ? urlOrPathname : `https://blob.vercel-storage.com/${urlOrPathname}`;
+  const response = await fetch(url, {
+    headers: {
+      'Authorization': `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}`
+    }
+  });
+  
+  if (!response.ok) {
+    throw new Error(`Erreur lors de la récupération du fichier: ${response.statusText}`);
   }
+  
+  return response;
 }
 
 /**
  * Récupère un fichier texte depuis Vercel Blob et le retourne sous forme de string
  */
-export async function getText(urlOrPathname: string): Promise<string | null> {
-  try {
-    const blob = await getFile(urlOrPathname);
-    if (!blob) return null;
-    return await blob.text();
-  } catch (error) {
-    console.error("Erreur lors de la récupération du texte:", error);
-    return null;
-  }
+export async function getText(urlOrPathname: string): Promise<string> {
+  const response = await getFile(urlOrPathname);
+  return response.text();
 }
 
 /**
@@ -90,13 +90,7 @@ export async function uploadJSON(
 /**
  * Récupère et parse un fichier JSON depuis Vercel Blob
  */
-export async function getJSON<T = any>(urlOrPathname: string): Promise<T | null> {
-  try {
-    const text = await getText(urlOrPathname);
-    if (!text) return null;
-    return JSON.parse(text) as T;
-  } catch (error) {
-    console.error("Erreur lors de la récupération ou du parsing du JSON:", error);
-    return null;
-  }
+export async function getJSON<T = any>(urlOrPathname: string): Promise<T> {
+  const text = await getText(urlOrPathname);
+  return JSON.parse(text) as T;
 }
