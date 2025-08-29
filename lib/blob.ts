@@ -1,99 +1,123 @@
 import { del, list, put, type PutBlobResult } from '@vercel/blob'
 
-interface SaveBlobOptions {
-  /**
-   * Fournir directement la clé complète (ex: 'jobs/123/manifest.json')
-   * Si 'key' est fourni, 'prefix' / 'filename' sont ignorés.
-   */
+/**
+ * Options internes pour sauvegarde d'un blob.
+ * key => chemin complet (ex: jobs/123/outputs/file.txt)
+ * prefix + filename => chemin construit
+ * addTimestamp => insère ou non un préfixe de type date pour éviter collisions
+ */
+export interface SaveBlobOptions {
   key?: string
   prefix?: string
   filename?: string
-  /**
-   * Par défaut true -> on ajoute un timestamp pour éviter les collisions.
-   * Mettre false pour un chemin déterministe (manifest, etc.).
-   */
   addTimestamp?: boolean
   access?: 'public' | 'private'
 }
 
+/**
+ * Sauvegarde générique d'un Blob / File dans Vercel Blob Storage.
+ */
 export async function saveBlob(
   file: File | Blob,
   opts?: SaveBlobOptions
 ): Promise<PutBlobResult> {
   let key: string
+
   if (opts?.key) {
-    key = opts.key
+    key = opts.key.replace(/^\/+/, '')
   } else {
     const prefix = (opts?.prefix ?? 'uploads/').replace(/^\/+/, '')
-    const name =
+    const baseName =
       opts?.filename ??
       (file instanceof File ? file.name : `file-${Date.now()}.bin`)
     const ts = opts?.addTimestamp === false ? '' : `${Date.now()}-`
-    key = `${prefix}${ts}${name}`
+    key = `${prefix}${ts}${baseName}`
   }
 
-  const res = await put(key, file, {
+  return put(key, file, {
     access: opts?.access ?? 'public',
     token: process.env.BLOB_READ_WRITE_TOKEN
   })
-  return res
 }
 
+/**
+ * Liste des blobs sous un préfixe.
+ */
 export async function listBlobs(prefix = 'uploads/') {
   return list({ prefix, token: process.env.BLOB_READ_WRITE_TOKEN })
 }
 
+/**
+ * Suppression d'un blob par URL ou pathname.
+ */
 export async function deleteBlob(urlOrPathname: string) {
   return del(urlOrPathname, { token: process.env.BLOB_READ_WRITE_TOKEN })
 }
 
 /**
- * Récupère un fichier (public ou privé) via fetch
+ * Récupère un fichier via fetch (support chemin relatif ou URL complète).
  */
-export async function getFile(urlOrPathname: string): Promise<Response> {
-  const url = urlOrPathname.startsWith('http')
-    ? urlOrPathname
-    : `https://blob.vercel-storage.com/${urlOrPathname}`
+export async function getFile(pathOrUrl: string): Promise<Response> {
+  const isFull = /^https?:\/\//i.test(pathOrUrl)
+  const url = isFull ? pathOrUrl : `https://blob.vercel-storage.com/${pathOrUrl.replace(/^\/+/, '')}`
 
   const headers: Record<string, string> = {}
   if (process.env.BLOB_READ_WRITE_TOKEN) {
     headers['Authorization'] = `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}`
   }
 
-  const response = await fetch(url, { headers })
-
-  if (!response.ok) {
-    throw new Error(
-      `Erreur lors de la récupération du fichier: ${response.status} ${response.statusText}`
-    )
+  const res = await fetch(url, { headers })
+  if (!res.ok) {
+    throw new Error(`Failed to fetch blob ${pathOrUrl}: ${res.status} ${res.statusText}`)
   }
-
-  return response
+  return res
 }
 
-export async function getText(urlOrPathname: string): Promise<string> {
-  const response = await getFile(urlOrPathname)
-  return response.text()
+/**
+ * Récupère le texte d'un blob.
+ */
+export async function getText(pathOrUrl: string): Promise<string> {
+  const res = await getFile(pathOrUrl)
+  return res.text()
 }
 
+/**
+ * Récupère puis parse du JSON.
+ */
+export async function getJSON<T = any>(pathOrUrl: string): Promise<T> {
+  const txt = await getText(pathOrUrl)
+  return JSON.parse(txt) as T
+}
+
+/* =======================
+ * Surcharges uploadText
+ * ======================= */
+export async function uploadText(text: string, key: string): Promise<PutBlobResult>
+export async function uploadText(text: string, opts?: SaveBlobOptions): Promise<PutBlobResult>
 export async function uploadText(
   text: string,
-  opts?: Omit<SaveBlobOptions, 'filename'> & { filename?: string }
+  keyOrOpts?: string | SaveBlobOptions
 ): Promise<PutBlobResult> {
   const blob = new Blob([text], { type: 'text/plain' })
-  return saveBlob(blob, { ...opts })
+  if (typeof keyOrOpts === 'string') {
+    return saveBlob(blob, { key: keyOrOpts, addTimestamp: false, access: 'private' })
+  }
+  return saveBlob(blob, keyOrOpts)
 }
 
+/* =======================
+ * Surcharges uploadJSON
+ * ======================= */
+export async function uploadJSON(data: any, key: string): Promise<PutBlobResult>
+export async function uploadJSON(data: any, opts?: SaveBlobOptions): Promise<PutBlobResult>
 export async function uploadJSON(
   data: any,
-  opts?: Omit<SaveBlobOptions, 'filename'> & { filename?: string }
+  keyOrOpts?: string | SaveBlobOptions
 ): Promise<PutBlobResult> {
-  const jsonText = JSON.stringify(data)
-  const blob = new Blob([jsonText], { type: 'application/json' })
-  return saveBlob(blob, { ...opts })
-}
-
-export async function getJSON<T = any>(urlOrPathname: string): Promise<T> {
-  const text = await getText(urlOrPathname)
-  return JSON.parse(text) as T
+  const json = JSON.stringify(data)
+  const blob = new Blob([json], { type: 'application/json' })
+  if (typeof keyOrOpts === 'string') {
+    return saveBlob(blob, { key: keyOrOpts, addTimestamp: false, access: 'private' })
+  }
+  return saveBlob(blob, keyOrOpts)
 }
