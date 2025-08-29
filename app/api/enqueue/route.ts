@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createJobStatus, generateJobId, updateStepStatus } from '../../../lib/status'
+import { appendJobId } from '../../../lib/jobIndex'
 
 export async function POST(request: NextRequest) {
   try {
@@ -11,7 +12,6 @@ export async function POST(request: NextRequest) {
     }
 
     const { fileId, filename, url } = payload || {}
-
     if (!fileId && !url) {
       return NextResponse.json(
         { error: 'Either fileId or url is required' },
@@ -23,6 +23,7 @@ export async function POST(request: NextRequest) {
     const jobId = generateJobId()
 
     await createJobStatus(jobId, filename, resourceRef)
+    await appendJobId(jobId)
     await updateStepStatus(jobId, 'extract', 'RUNNING', 'Starting PDF text extraction')
 
     try {
