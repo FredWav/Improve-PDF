@@ -1,13 +1,11 @@
-import { del, list, put, type PutBlobResult } from '@vercel/blob'
+import { put, del, list, type PutBlobResult } from '@vercel/blob'
 
 export interface SaveBlobOptions {
   key?: string
   prefix?: string
   filename?: string
   addTimestamp?: boolean
-  // Le SDK actuel ne supporte que 'public'. On laisse optionnel pour aligner la signature,
-  // mais on force la valeur interne à 'public'.
-  access?: 'public'
+  access?: 'public' // Le SDK actuel ne gère que 'public'
 }
 
 export interface StoredBlobResult extends PutBlobResult {
@@ -15,26 +13,38 @@ export interface StoredBlobResult extends PutBlobResult {
   uploadedAt: string
 }
 
+function buildKey(file: File | Blob, opts?: SaveBlobOptions): string {
+  if (opts?.key) return opts.key.replace(/^\/+/,'')
+  const prefix = (opts?.prefix ?? 'uploads/').replace(/^\/+/,'')
+  const baseName =
+    opts?.filename ??
+    (file instanceof File ? file.name : `file-${Date.now()}.bin`)
+  const ts = opts?.addTimestamp === false ? '' : `${Date.now()}-`
+  return `${prefix}${ts}${baseName}`
+}
+
+function buildPutOptions() {
+  const o: any = { access: 'public' as const }
+  if (process.env.BLOB_READ_WRITE_TOKEN) {
+    o.token = process.env.BLOB_READ_WRITE_TOKEN
+  }
+  return o
+}
+
 export async function saveBlob(
   file: File | Blob,
   opts?: SaveBlobOptions
 ): Promise<StoredBlobResult> {
-  let key: string
-  if (opts?.key) {
-    key = opts.key.replace(/^\/+/, '')
-  } else {
-    const prefix = (opts?.prefix ?? 'uploads/').replace(/^\/+/, '')
-    const baseName =
-      opts?.filename ??
-      (file instanceof File ? file.name : `file-${Date.now()}.bin`)
-    const ts = opts?.addTimestamp === false ? '' : `${Date.now()}-`
-    key = `${prefix}${ts}${baseName}`
-  }
+  const key = buildKey(file, opts)
 
-  const putResult = await put(key, file, {
-    access: 'public', // forcé
-    token: process.env.BLOB_READ_WRITE_TOKEN
-  })
+  let putResult: PutBlobResult
+  try {
+    putResult = await put(key, file, buildPutOptions())
+  } catch (err: any) {
+    throw new Error(
+      `Blob upload failed for key="${key}": ${err?.message || String(err)}`
+    )
+  }
 
   const size =
     file instanceof File
@@ -54,18 +64,23 @@ export async function saveBlob(
 }
 
 export async function listBlobs(prefix = 'uploads/') {
-  return list({ prefix, token: process.env.BLOB_READ_WRITE_TOKEN })
+  return list({
+    prefix,
+    token: process.env.BLOB_READ_WRITE_TOKEN
+  })
 }
 
 export async function deleteBlob(urlOrPathname: string) {
-  return del(urlOrPathname, { token: process.env.BLOB_READ_WRITE_TOKEN })
+  return del(urlOrPathname, {
+    token: process.env.BLOB_READ_WRITE_TOKEN
+  })
 }
 
 export async function getFile(pathOrUrl: string): Promise<Response> {
   const isFull = /^https?:\/\//i.test(pathOrUrl)
   const url = isFull
     ? pathOrUrl
-    : `https://blob.vercel-storage.com/${pathOrUrl.replace(/^\/+/, '')}`
+    : `https://blob.vercel-storage.com/${pathOrUrl.replace(/^\/+/,'')}`
 
   const headers: Record<string, string> = {}
   if (process.env.BLOB_READ_WRITE_TOKEN) {
@@ -75,7 +90,7 @@ export async function getFile(pathOrUrl: string): Promise<Response> {
   const res = await fetch(url, { headers })
   if (!res.ok) {
     throw new Error(
-      `Failed to fetch blob ${pathOrUrl}: ${res.status} ${res.statusText}`
+      `Failed to fetch blob "${pathOrUrl}": ${res.status} ${res.statusText}`
     )
   }
   return res
@@ -91,8 +106,14 @@ export async function getJSON<T = any>(pathOrUrl: string): Promise<T> {
   return JSON.parse(txt) as T
 }
 
-export async function uploadText(text: string, key: string): Promise<StoredBlobResult>
-export async function uploadText(text: string, opts?: SaveBlobOptions): Promise<StoredBlobResult>
+export async function uploadText(
+  text: string,
+  key: string
+): Promise<StoredBlobResult>
+export async function uploadText(
+  text: string,
+  opts?: SaveBlobOptions
+): Promise<StoredBlobResult>
 export async function uploadText(
   text: string,
   keyOrOpts?: string | SaveBlobOptions
@@ -104,8 +125,14 @@ export async function uploadText(
   return saveBlob(blob, keyOrOpts)
 }
 
-export async function uploadJSON(data: any, key: string): Promise<StoredBlobResult>
-export async function uploadJSON(data: any, opts?: SaveBlobOptions): Promise<StoredBlobResult>
+export async function uploadJSON(
+  data: any,
+  key: string
+): Promise<StoredBlobResult>
+export async function uploadJSON(
+  data: any,
+  opts?: SaveBlobOptions
+): Promise<StoredBlobResult>
 export async function uploadJSON(
   data: any,
   keyOrOpts?: string | SaveBlobOptions

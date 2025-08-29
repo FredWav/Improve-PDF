@@ -19,7 +19,6 @@ export async function POST(req: Request) {
     const uploaded = await saveBlob(file, {
       prefix: 'uploads/',
       filename: file.name,
-      access: 'public',
       addTimestamp: true
     })
 
@@ -27,12 +26,13 @@ export async function POST(req: Request) {
       ok: true,
       url: uploaded.url,
       pathname: uploaded.pathname,
-      size: uploaded.size,          // maintenant garanti dans StoredBlobResult
+      size: uploaded.size,
       uploadedAt: uploaded.uploadedAt
     })
   } catch (err: any) {
+    console.error('Upload error:', err)
     return NextResponse.json(
-      { ok: false, error: err?.message ?? 'Upload failed' },
+      { ok: false, error: err?.message || 'Upload failed' },
       { status: 500 }
     )
   }

@@ -9,7 +9,6 @@ export interface JobOutputs {
   renderedHtml?: string
   renderedMarkdown?: string
   pdfOutput?: string
-
   md?: string
   html?: string
   pdf?: string
@@ -53,7 +52,6 @@ export async function createJobStatus(
   inputFile?: string
 ): Promise<JobStatus> {
   const now = new Date().toISOString()
-
   const status: JobStatus = {
     id,
     filename,
@@ -77,7 +75,6 @@ export async function createJobStatus(
     inputFile,
     metadata: {}
   }
-
   await saveJobStatus(status)
   return status
 }
@@ -92,8 +89,7 @@ export async function saveJobStatus(status: JobStatus): Promise<void> {
 
 export async function loadJobStatus(id: string): Promise<JobStatus | null> {
   try {
-    const path = MANIFEST_PATH(id)
-    return await getJSON<JobStatus>(path)
+    return await getJSON<JobStatus>(MANIFEST_PATH(id))
   } catch {
     return null
   }
@@ -102,17 +98,16 @@ export async function loadJobStatus(id: string): Promise<JobStatus | null> {
 export async function updateStepStatus(
   id: string,
   step: keyof JobStatus['steps'],
-  status: StepStatus,
+  statusValue: StepStatus,
   message?: string
 ): Promise<void> {
   const jobStatus = await loadJobStatus(id)
   if (!jobStatus) throw new Error(`Job ${id} not found`)
-
-  jobStatus.steps[step] = status
+  jobStatus.steps[step] = statusValue
   if (message) {
     jobStatus.logs.push({
       timestamp: new Date().toISOString(),
-      level: status === 'FAILED' ? 'error' : 'info',
+      level: statusValue === 'FAILED' ? 'error' : 'info',
       message: `Step ${step}: ${message}`
     })
   }
