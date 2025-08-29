@@ -2,10 +2,6 @@ import { uploadJSON, getJSON, uploadText } from './blob'
 
 export type StepStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED'
 
-/**
- * Clés de sorties supportées
- * (celles utilisées par le route de download + anciennes clés génériques)
- */
 export interface JobOutputs {
   rawText?: string
   normalizedText?: string
@@ -51,9 +47,6 @@ export interface JobStatus {
 
 const MANIFEST_PATH = (id: string) => `jobs/${id}/manifest.json`
 
-/**
- * Create a new job manifest with initial status
- */
 export async function createJobStatus(
   id: string,
   filename?: string,
@@ -89,34 +82,23 @@ export async function createJobStatus(
   return status
 }
 
-/**
- * Save job status (deterministic path)
- */
 export async function saveJobStatus(status: JobStatus): Promise<void> {
   status.updatedAt = new Date().toISOString()
   await uploadJSON(status, {
     key: MANIFEST_PATH(status.id),
-    addTimestamp: false,
-    access: 'private'
+    addTimestamp: false
   })
 }
 
-/**
- * Load job status
- */
 export async function loadJobStatus(id: string): Promise<JobStatus | null> {
   try {
     const path = MANIFEST_PATH(id)
-    // On utilise getJSON qui gère token & fetch
     return await getJSON<JobStatus>(path)
-  } catch (err) {
+  } catch {
     return null
   }
 }
 
-/**
- * Update a specific step status
- */
 export async function updateStepStatus(
   id: string,
   step: keyof JobStatus['steps'],
@@ -127,7 +109,6 @@ export async function updateStepStatus(
   if (!jobStatus) throw new Error(`Job ${id} not found`)
 
   jobStatus.steps[step] = status
-
   if (message) {
     jobStatus.logs.push({
       timestamp: new Date().toISOString(),
@@ -135,13 +116,9 @@ export async function updateStepStatus(
       message: `Step ${step}: ${message}`
     })
   }
-
   await saveJobStatus(jobStatus)
 }
 
-/**
- * Add output file URL to job status
- */
 export async function addJobOutput(
   id: string,
   outputType: keyof JobStatus['outputs'],
@@ -149,20 +126,15 @@ export async function addJobOutput(
 ): Promise<void> {
   const jobStatus = await loadJobStatus(id)
   if (!jobStatus) throw new Error(`Job ${id} not found`)
-
   jobStatus.outputs[outputType] = url
   jobStatus.logs.push({
     timestamp: new Date().toISOString(),
     level: 'info',
     message: `Output generated: ${outputType} -> ${url}`
   })
-
   await saveJobStatus(jobStatus)
 }
 
-/**
- * Add a log entry
- */
 export async function addJobLog(
   id: string,
   level: 'info' | 'warn' | 'error',
@@ -170,19 +142,14 @@ export async function addJobLog(
 ): Promise<void> {
   const jobStatus = await loadJobStatus(id)
   if (!jobStatus) throw new Error(`Job ${id} not found`)
-
   jobStatus.logs.push({
     timestamp: new Date().toISOString(),
     level,
     message
   })
-
   await saveJobStatus(jobStatus)
 }
 
-/**
- * Update metadata
- */
 export async function updateJobMetadata(
   id: string,
   metadata: Partial<JobStatus['metadata']>
@@ -193,35 +160,23 @@ export async function updateJobMetadata(
   await saveJobStatus(jobStatus)
 }
 
-/**
- * Complete job
- */
 export async function completeJob(id: string): Promise<void> {
   const jobStatus = await loadJobStatus(id)
   if (!jobStatus) throw new Error(`Job ${id} not found`)
-
   Object.keys(jobStatus.steps).forEach(k => {
     const key = k as keyof JobStatus['steps']
-    if (
-      jobStatus.steps[key] === 'PENDING' ||
-      jobStatus.steps[key] === 'RUNNING'
-    ) {
+    if (jobStatus.steps[key] === 'PENDING' || jobStatus.steps[key] === 'RUNNING') {
       jobStatus.steps[key] = 'COMPLETED'
     }
   })
-
   jobStatus.logs.push({
     timestamp: new Date().toISOString(),
     level: 'info',
     message: 'Job completed successfully'
   })
-
   await saveJobStatus(jobStatus)
 }
 
-/**
- * Fail job
- */
 export async function failJob(
   id: string,
   error: string,
@@ -229,37 +184,25 @@ export async function failJob(
 ): Promise<void> {
   const jobStatus = await loadJobStatus(id)
   if (!jobStatus) throw new Error(`Job ${id} not found`)
-
   if (step) jobStatus.steps[step] = 'FAILED'
-
   jobStatus.logs.push({
     timestamp: new Date().toISOString(),
     level: 'error',
     message: `Job failed: ${error}`
   })
-
   await saveJobStatus(jobStatus)
 }
 
-/**
- * Generate ID
- */
 export function generateJobId(): string {
   const timestamp = Date.now()
   const random = Math.random().toString(36).substring(2, 8)
   return `job-${timestamp}-${random}`
 }
 
-/**
- * Placeholder (non index global implémenté)
- */
 export async function listJobs(): Promise<JobStatus[]> {
   return []
 }
 
-/**
- * Save intermediate processing data
- */
 export async function saveProcessingData(
   jobId: string,
   step: string,
@@ -269,8 +212,7 @@ export async function saveProcessingData(
   const key = `jobs/${jobId}/${step}/${filename}`
   const result = await uploadText(data, {
     key,
-    addTimestamp: false,
-    access: 'private'
+    addTimestamp: false
   })
   await addJobLog(jobId, 'info', `Saved ${step} data: ${filename}`)
   return result.url
