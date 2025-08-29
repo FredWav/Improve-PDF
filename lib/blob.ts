@@ -6,6 +6,8 @@ export interface SaveBlobOptions {
   filename?: string
   addTimestamp?: boolean
   access?: 'public'
+  allowOverwrite?: boolean
+  addRandomSuffix?: boolean
 }
 
 export interface StoredBlobResult extends PutBlobResult {
@@ -33,20 +35,23 @@ function requireReadWriteToken(): string {
   return token
 }
 
-function buildPutOptions() {
-  const token = requireReadWriteToken()
-  return { access: 'public' as const, token }
-}
-
 export async function saveBlob(
   file: File | Blob,
   opts?: SaveBlobOptions
 ): Promise<StoredBlobResult> {
   const key = buildKey(file, opts)
+  const token = requireReadWriteToken()
+
+  const putOptions: any = {
+    access: opts?.access ?? 'public',
+    token
+  }
+  if (opts?.allowOverwrite) putOptions.allowOverwrite = true
+  if (opts?.addRandomSuffix) putOptions.addRandomSuffix = true
 
   let putResult: PutBlobResult
   try {
-    putResult = await put(key, file, buildPutOptions())
+    putResult = await put(key, file, putOptions)
   } catch (err: any) {
     throw new Error(
       `Blob upload failed for key="${key}": ${err?.message || String(err)}`
@@ -119,7 +124,7 @@ export async function uploadText(
 ): Promise<StoredBlobResult> {
   const blob = new Blob([text], { type: 'text/plain' })
   if (typeof keyOrOpts === 'string') {
-    return saveBlob(blob, { key: keyOrOpts, addTimestamp: false })
+    return saveBlob(blob, { key: keyOrOpts, addTimestamp: false, allowOverwrite: true })
   }
   return saveBlob(blob, keyOrOpts)
 }
@@ -139,7 +144,7 @@ export async function uploadJSON(
   const json = JSON.stringify(data)
   const blob = new Blob([json], { type: 'application/json' })
   if (typeof keyOrOpts === 'string') {
-    return saveBlob(blob, { key: keyOrOpts, addTimestamp: false })
+    return saveBlob(blob, { key: keyOrOpts, addTimestamp: false, allowOverwrite: true })
   }
   return saveBlob(blob, keyOrOpts)
 }
