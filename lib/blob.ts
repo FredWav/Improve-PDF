@@ -5,7 +5,7 @@ export interface SaveBlobOptions {
   prefix?: string
   filename?: string
   addTimestamp?: boolean
-  access?: 'public' // Le SDK actuel ne gère que 'public'
+  access?: 'public'
 }
 
 export interface StoredBlobResult extends PutBlobResult {
@@ -23,12 +23,19 @@ function buildKey(file: File | Blob, opts?: SaveBlobOptions): string {
   return `${prefix}${ts}${baseName}`
 }
 
-function buildPutOptions() {
-  const o: any = { access: 'public' as const }
-  if (process.env.BLOB_READ_WRITE_TOKEN) {
-    o.token = process.env.BLOB_READ_WRITE_TOKEN
+function requireReadWriteToken(): string {
+  const token = process.env.BLOB_READ_WRITE_TOKEN
+  if (!token) {
+    throw new Error(
+      'Missing BLOB_READ_WRITE_TOKEN environment variable. Create a Blob store in Vercel and add the token to your project settings.'
+    )
   }
-  return o
+  return token
+}
+
+function buildPutOptions() {
+  const token = requireReadWriteToken()
+  return { access: 'public' as const, token }
 }
 
 export async function saveBlob(
@@ -46,33 +53,25 @@ export async function saveBlob(
     )
   }
 
-  const size =
-    file instanceof File
-      ? file.size
-      : (file as any).size ?? 0
-
+  const size = file instanceof File ? file.size : (file as any).size ?? 0
   const uploadedAt =
     (putResult as any).uploadedAt
       ? new Date((putResult as any).uploadedAt).toISOString()
       : new Date().toISOString()
 
-  return {
-    ...putResult,
-    size,
-    uploadedAt
-  }
+  return { ...putResult, size, uploadedAt }
 }
 
 export async function listBlobs(prefix = 'uploads/') {
   return list({
     prefix,
-    token: process.env.BLOB_READ_WRITE_TOKEN
+    token: process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_READ_ONLY_TOKEN
   })
 }
 
 export async function deleteBlob(urlOrPathname: string) {
   return del(urlOrPathname, {
-    token: process.env.BLOB_READ_WRITE_TOKEN
+    token: process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_READ_ONLY_TOKEN
   })
 }
 
@@ -83,9 +82,9 @@ export async function getFile(pathOrUrl: string): Promise<Response> {
     : `https://blob.vercel-storage.com/${pathOrUrl.replace(/^\/+/,'')}`
 
   const headers: Record<string, string> = {}
-  if (process.env.BLOB_READ_WRITE_TOKEN) {
-    headers['Authorization'] = `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}`
-  }
+  const token =
+    process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_READ_ONLY_TOKEN
+  if (token) headers['Authorization'] = `Bearer ${token}`
 
   const res = await fetch(url, { headers })
   if (!res.ok) {
