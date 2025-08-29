@@ -1,61 +1,49 @@
-import Link from 'next/link'
+import { UploadZone } from '@/components/UploadZone'
+import { JobsPanel } from '@/components/JobsPanel'
+import { t } from '@/lib/i18n'
 
-export default function HomePage() {
+export default function Home() {
   return (
-    <div className="text-center">
-      <div className="max-w-3xl mx-auto">
-        <h1 className="text-4xl font-bold text-gray-900 mb-6">
-          Transform Your PDFs into Professional Ebooks
+    <main className="max-w-6xl mx-auto px-6 py-10 space-y-10">
+      <header className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold text-slate-800">
+          Improve PDF
         </h1>
-        
-        <p className="text-lg text-gray-600 mb-8">
-          Upload a PDF and watch as AI enhances the writing, adds illustrations, 
-          and produces professional HTML, PDF, and EPUB formats with full licensing attribution.
-        </p>
+      </header>
 
-        <div className="bg-white rounded-lg shadow-sm border p-6 mb-8">
-          <h2 className="text-xl font-semibold mb-4">How it works:</h2>
-          <div className="grid md:grid-cols-2 lg:grid-cols-5 gap-4 text-sm">
-            <div className="text-center">
-              <div className="w-8 h-8 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-2 font-semibold">1</div>
-              <h3 className="font-medium mb-1">Extract</h3>
-              <p className="text-gray-600">Parse PDF text with OCR fallback</p>
-            </div>
-            <div className="text-center">
-              <div className="w-8 h-8 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-2 font-semibold">2</div>
-              <h3 className="font-medium mb-1">Normalize</h3>
-              <p className="text-gray-600">Fix typography and formatting</p>
-            </div>
-            <div className="text-center">
-              <div className="w-8 h-8 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-2 font-semibold">3</div>
-              <h3 className="font-medium mb-1">Improve</h3>
-              <p className="text-gray-600">AI enhances writing while preserving meaning</p>
-            </div>
-            <div className="text-center">
-              <div className="w-8 h-8 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-2 font-semibold">4</div>
-              <h3 className="font-medium mb-1">Illustrate</h3>
-              <p className="text-gray-600">Add relevant images with proper licensing</p>
-            </div>
-            <div className="text-center">
-              <div className="w-8 h-8 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-2 font-semibold">5</div>
-              <h3 className="font-medium mb-1">Export</h3>
-              <p className="text-gray-600">Generate HTML, PDF, and EPUB formats</p>
-            </div>
+      <section className="grid md:grid-cols-5 gap-10 items-start">
+        <div className="md:col-span-2 space-y-6">
+          <div>
+            <h2 className="text-lg font-medium mb-4">{t('actions.upload')}</h2>
+            <UploadZone
+              onUploaded={async (data) => {
+                try {
+                  await fetch('/api/enqueue', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      fileId: data.fileId || data.pathname,
+                      filename: data.originalName || data.filename || data.pathname
+                    })
+                  })
+                } catch (e) {
+                  console.error(e)
+                }
+              }}
+            />
+          </div>
+
+          <div className="text-xs text-slate-500 space-y-1">
+            <p>Le fichier est traité étape par étape (extraction, amélioration, export…).</p>
+            <p>Vous pouvez rester sur cette page, la liste se met à jour automatiquement.</p>
           </div>
         </div>
 
-        <Link 
-          href="/upload" 
-          className="inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 transition-colors"
-        >
-          Get Started - Upload PDF
-        </Link>
-
-        <div className="mt-8 text-sm text-gray-500">
-          <p>⚠️ Content preservation: AI maintains ≥98% original length and meaning</p>
-          <p>📝 Full audit reports provided with licensing attribution</p>
+        <div className="md:col-span-3 space-y-4">
+          <h2 className="text-lg font-medium">{t('job.recent')}</h2>
+          <JobsPanel />
         </div>
-      </div>
-    </div>
+      </section>
+    </main>
   )
 }
