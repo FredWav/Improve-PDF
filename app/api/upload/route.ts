@@ -1,56 +1,39 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { uploadFile, createUniqueFilename, validateFileType } from '../../../lib/blob'
+// app/api/upload/route.ts
+import { NextResponse } from 'next/server';
+import { saveBlob } from '@/lib/blob';
 
-export async function POST(request: NextRequest) {
+export const runtime = 'nodejs'; // on veut Node runtime
+export const dynamic = 'force-dynamic';
+
+export async function POST(req: Request) {
   try {
-    const formData = await request.formData()
-    const file = formData.get('file') as File
+    const form = await req.formData();
+    const file = form.get('file');
 
-    if (!file) {
+    if (!(file instanceof File)) {
       return NextResponse.json(
-        { error: 'No file provided' },
+        { ok: false, error: 'Missing file field named "file"' },
         { status: 400 }
-      )
+      );
     }
 
-    // Validate file type
-    if (!validateFileType(file.name, ['pdf'])) {
-      return NextResponse.json(
-        { error: 'Only PDF files are allowed' },
-        { status: 400 }
-      )
-    }
-
-    // Validate file size (50MB max)
-    const maxSize = 50 * 1024 * 1024 // 50MB
-    if (file.size > maxSize) {
-      return NextResponse.json(
-        { error: 'File size must be less than 50MB' },
-        { status: 400 }
-      )
-    }
-
-    // Generate unique filename
-    const uniqueFilename = createUniqueFilename(file.name)
-
-    // Upload to Vercel Blob
-    const result = await uploadFile(file, uniqueFilename)
-
-    // Extract file ID from pathname for easier reference
-    const fileId = result.pathname.split('/').pop()?.split('-')[0] || uniqueFilename
+    const uploaded = await saveBlob(file, {
+      prefix: 'uploads/',
+      filename: file.name,
+      access: 'public'
+    });
 
     return NextResponse.json({
-      fileId,
-      url: result.url,
-      pathname: result.pathname,
-      originalName: file.name,
-      size: file.size
-    })
-  } catch (error) {
-    console.error('Upload error:', error)
+      ok: true,
+      url: uploaded.url,
+      pathname: uploaded.pathname,
+      size: uploaded.size,
+      uploadedAt: uploaded.uploadedAt
+    });
+  } catch (err: any) {
     return NextResponse.json(
-      { error: 'Failed to upload file' },
+      { ok: false, error: err?.message ?? 'Upload failed' },
       { status: 500 }
-    )
+    );
   }
 }
