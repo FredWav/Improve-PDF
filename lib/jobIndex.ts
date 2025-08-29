@@ -55,3 +55,45 @@ export async function getAllJobsSummaries(): Promise<JobSummary[]> {
   )
   return jobs.filter(Boolean) as JobSummary[]
 }
+
+export interface ListJobsParams {
+  page?: number
+  pageSize?: number
+  sort?: 'createdAt' | 'updatedAt'
+  order?: 'asc' | 'desc'
+}
+
+export interface ListJobsResult {
+  jobs: JobSummary[]
+  total: number
+  page: number
+  pageSize: number
+  hasMore: boolean
+}
+
+export async function listJobs({ page = 1, pageSize = 50, sort = 'updatedAt', order = 'desc' }: ListJobsParams = {}): Promise<ListJobsResult> {
+  if (page < 1) page = 1
+  if (pageSize < 1) pageSize = 1
+  const all = await getAllJobsSummaries()
+
+  const factor = order === 'asc' ? 1 : -1
+  const sorted = [...all].sort((a, b) => {
+    const av = (a[sort] || '')
+    const bv = (b[sort] || '')
+    if (av === bv) return 0
+    return av < bv ? -1 * factor : 1 * factor
+  })
+
+  const total = sorted.length
+  const start = (page - 1) * pageSize
+  const end = start + pageSize
+  const slice = sorted.slice(start, end)
+
+  return {
+    jobs: slice,
+    total,
+    page,
+    pageSize,
+    hasMore: end < total
+  }
+}
