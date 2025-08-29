@@ -3,41 +3,36 @@ import { createJobStatus, generateJobId, updateStepStatus } from '../../../lib/s
 
 export async function POST(request: NextRequest) {
   try {
-    const { fileId, filename, url } = await request.json()
+    let payload: any
+    try {
+      payload = await request.json()
+    } catch {
+      return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+    }
 
-    if (!fileId) {
+    const { fileId, filename, url } = payload || {}
+
+    if (!fileId && !url) {
       return NextResponse.json(
-        { error: 'File ID is required' },
+        { error: 'Either fileId or url is required' },
         { status: 400 }
       )
     }
 
-    // Generate a unique job ID
+    const resourceRef = url || fileId
     const jobId = generateJobId()
 
-    // Create initial job status
-    const jobStatus = await createJobStatus(jobId, filename, url || fileId)
-
-    // Mark extraction step as running and trigger it
+    await createJobStatus(jobId, filename, resourceRef)
     await updateStepStatus(jobId, 'extract', 'RUNNING', 'Starting PDF text extraction')
 
-    // In a real implementation, you would either:
-    // 1. Use Vercel Queues to enqueue the job
-    // 2. Use a cron job to process pending jobs
-    // 3. Call the extraction API directly (for immediate processing)
-    
-    // For now, we'll trigger the extraction job directly
     try {
-      // Trigger extraction job
       await fetch(`${request.nextUrl.origin}/api/jobs/extract`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           jobId,
-          fileUrl: url || fileId,
-          pageRange: { start: 0, count: 30 } // Start with first 30 pages
+          fileUrl: resourceRef,
+          pageRange: { start: 0, count: 30 }
         })
       })
     } catch (error) {
