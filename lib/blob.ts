@@ -5,7 +5,9 @@ export interface SaveBlobOptions {
   prefix?: string
   filename?: string
   addTimestamp?: boolean
-  access?: 'public' | 'private'
+  // Le SDK actuel ne supporte que 'public'. On laisse optionnel pour aligner la signature,
+  // mais on force la valeur interne à 'public'.
+  access?: 'public'
 }
 
 export interface StoredBlobResult extends PutBlobResult {
@@ -13,10 +15,6 @@ export interface StoredBlobResult extends PutBlobResult {
   uploadedAt: string
 }
 
-/**
- * Sauvegarde générique (Blob/File) dans Vercel Blob Storage
- * Retour enrichi avec size + uploadedAt déterministes pour ton application.
- */
 export async function saveBlob(
   file: File | Blob,
   opts?: SaveBlobOptions
@@ -34,18 +32,15 @@ export async function saveBlob(
   }
 
   const putResult = await put(key, file, {
-    access: opts?.access ?? 'public',
+    access: 'public', // forcé
     token: process.env.BLOB_READ_WRITE_TOKEN
   })
 
-  // Taille fiable depuis l’objet d’entrée
   const size =
     file instanceof File
       ? file.size
-      : // certains blobs peuvent avoir size
-        (file as any).size ?? 0
+      : (file as any).size ?? 0
 
-  // uploadedAt parfois présent selon versions; on normalise en string ISO
   const uploadedAt =
     (putResult as any).uploadedAt
       ? new Date((putResult as any).uploadedAt).toISOString()
@@ -96,9 +91,6 @@ export async function getJSON<T = any>(pathOrUrl: string): Promise<T> {
   return JSON.parse(txt) as T
 }
 
-/* =======================
- * Surcharges uploadText
- * ======================= */
 export async function uploadText(text: string, key: string): Promise<StoredBlobResult>
 export async function uploadText(text: string, opts?: SaveBlobOptions): Promise<StoredBlobResult>
 export async function uploadText(
@@ -107,14 +99,11 @@ export async function uploadText(
 ): Promise<StoredBlobResult> {
   const blob = new Blob([text], { type: 'text/plain' })
   if (typeof keyOrOpts === 'string') {
-    return saveBlob(blob, { key: keyOrOpts, addTimestamp: false, access: 'private' })
+    return saveBlob(blob, { key: keyOrOpts, addTimestamp: false })
   }
   return saveBlob(blob, keyOrOpts)
 }
 
-/* =======================
- * Surcharges uploadJSON
- * ======================= */
 export async function uploadJSON(data: any, key: string): Promise<StoredBlobResult>
 export async function uploadJSON(data: any, opts?: SaveBlobOptions): Promise<StoredBlobResult>
 export async function uploadJSON(
@@ -124,7 +113,7 @@ export async function uploadJSON(
   const json = JSON.stringify(data)
   const blob = new Blob([json], { type: 'application/json' })
   if (typeof keyOrOpts === 'string') {
-    return saveBlob(blob, { key: keyOrOpts, addTimestamp: false, access: 'private' })
+    return saveBlob(blob, { key: keyOrOpts, addTimestamp: false })
   }
   return saveBlob(blob, keyOrOpts)
 }
