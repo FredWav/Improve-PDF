@@ -6,9 +6,27 @@ export const dynamic = 'force-dynamic'
 
 export async function POST(req: Request) {
   try {
+    if (!process.env.BLOB_READ_WRITE_TOKEN) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            'Server missing BLOB_READ_WRITE_TOKEN. Configure a Vercel Blob store and set the token.'
+        },
+        { status: 500 }
+      )
+    }
+
+    // Debug temporaire (à retirer quand confirmé)
+    console.log(
+      '[upload] token prefix:',
+      process.env.BLOB_READ_WRITE_TOKEN.slice(0, 16),
+      'len=',
+      process.env.BLOB_READ_WRITE_TOKEN.length
+    )
+
     const form = await req.formData()
     const file = form.get('file')
-
     if (!(file instanceof File)) {
       return NextResponse.json(
         { ok: false, error: 'Missing file field named "file"' },
