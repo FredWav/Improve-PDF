@@ -1,1 +1,25 @@
-{"$schema":"https://openapi.vercel.sh/vercel.json","functions":{"api/**.mjs":{"runtime":"nodejs20.x"},"api/**/route.ts":{"runtime":"nodejs20.x","memory":1024,"maxDuration":60}},"buildCommand":"npm run build","installCommand":"npm ci","regions":["fra1","cdg1"],"cron":[{"path":"/api/status/reap","schedule":"0 3 * * *"}]}
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "version": 2,
+  "functions": {
+    "api/**": {
+      "runtime": "nodejs20.x",
+      "maxDuration": 60,
+      "memory": 1024
+    }
+  },
+  "images": {
+    "remotePatterns": [
+      { "protocol": "https", "hostname": "images.unsplash.com" },
+      { "protocol": "https", "hostname": "plus.unsplash.com" },
+      { "protocol": "https", "hostname": "source.unsplash.com" },
+      { "protocol": "https", "hostname": "images.pexels.com" }
+    ]
+  },
+  "crons": [
+    {
+      "path": "/api/status/reap",
+      "schedule": "0 */6 * * *"
+    }
+  ]
+}
