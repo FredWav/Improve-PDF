@@ -1,96 +1,99 @@
-import { del, list, put, type PutBlobResult } from '@vercel/blob';
-import { headers } from 'next/headers';
+import { del, list, put, type PutBlobResult } from '@vercel/blob'
 
-/**
- * Enregistre un fichier reçu (File/Blob) dans Vercel Blob.
- * - access: 'public' pour récupérer une URL publique
- * - token: recommandé côté serveur si ton store l'exige
- */
+interface SaveBlobOptions {
+  /**
+   * Fournir directement la clé complète (ex: 'jobs/123/manifest.json')
+   * Si 'key' est fourni, 'prefix' / 'filename' sont ignorés.
+   */
+  key?: string
+  prefix?: string
+  filename?: string
+  /**
+   * Par défaut true -> on ajoute un timestamp pour éviter les collisions.
+   * Mettre false pour un chemin déterministe (manifest, etc.).
+   */
+  addTimestamp?: boolean
+  access?: 'public' | 'private'
+}
+
 export async function saveBlob(
   file: File | Blob,
-  opts?: { prefix?: string; filename?: string; access?: 'public' | 'private' }
+  opts?: SaveBlobOptions
 ): Promise<PutBlobResult> {
-  const prefix = opts?.prefix ?? 'uploads/';
-  const name = opts?.filename ?? (file instanceof File ? file.name : `file-${Date.now()}.bin`);
-  const key = `${prefix}${Date.now()}-${name}`;
+  let key: string
+  if (opts?.key) {
+    key = opts.key
+  } else {
+    const prefix = (opts?.prefix ?? 'uploads/').replace(/^\/+/, '')
+    const name =
+      opts?.filename ??
+      (file instanceof File ? file.name : `file-${Date.now()}.bin`)
+    const ts = opts?.addTimestamp === false ? '' : `${Date.now()}-`
+    key = `${prefix}${ts}${name}`
+  }
 
   const res = await put(key, file, {
     access: opts?.access ?? 'public',
-    token: process.env.BLOB_READ_WRITE_TOKEN // peut être omis si store public
-  });
-
-  return res; // { url, pathname, size, uploadedAt }
+    token: process.env.BLOB_READ_WRITE_TOKEN
+  })
+  return res
 }
 
-/**
- * Liste les blobs sous un préfixe.
- */
 export async function listBlobs(prefix = 'uploads/') {
-  return list({ prefix, token: process.env.BLOB_READ_WRITE_TOKEN });
+  return list({ prefix, token: process.env.BLOB_READ_WRITE_TOKEN })
 }
 
-/**
- * Supprime un blob par son URL ou son pathname.
- */
 export async function deleteBlob(urlOrPathname: string) {
-  return del(urlOrPathname, { token: process.env.BLOB_READ_WRITE_TOKEN });
+  return del(urlOrPathname, { token: process.env.BLOB_READ_WRITE_TOKEN })
 }
 
 /**
- * Récupère un fichier depuis Vercel Blob avec fetch
+ * Récupère un fichier (public ou privé) via fetch
  */
 export async function getFile(urlOrPathname: string): Promise<Response> {
-  const url = urlOrPathname.startsWith('http') ? urlOrPathname : `https://blob.vercel-storage.com/${urlOrPathname}`;
-  const response = await fetch(url, {
-    headers: {
-      'Authorization': `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}`
-    }
-  });
-  
-  if (!response.ok) {
-    throw new Error(`Erreur lors de la récupération du fichier: ${response.statusText}`);
+  const url = urlOrPathname.startsWith('http')
+    ? urlOrPathname
+    : `https://blob.vercel-storage.com/${urlOrPathname}`
+
+  const headers: Record<string, string> = {}
+  if (process.env.BLOB_READ_WRITE_TOKEN) {
+    headers['Authorization'] = `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}`
   }
-  
-  return response;
+
+  const response = await fetch(url, { headers })
+
+  if (!response.ok) {
+    throw new Error(
+      `Erreur lors de la récupération du fichier: ${response.status} ${response.statusText}`
+    )
+  }
+
+  return response
 }
 
-/**
- * Récupère un fichier texte depuis Vercel Blob et le retourne sous forme de string
- */
 export async function getText(urlOrPathname: string): Promise<string> {
-  const response = await getFile(urlOrPathname);
-  return response.text();
+  const response = await getFile(urlOrPathname)
+  return response.text()
 }
 
-/**
- * Télécharge du texte vers Vercel Blob
- */
 export async function uploadText(
   text: string,
-  opts?: { prefix?: string; filename?: string; access?: 'public' | 'private' }
+  opts?: Omit<SaveBlobOptions, 'filename'> & { filename?: string }
 ): Promise<PutBlobResult> {
-  const blob = new Blob([text], { type: 'text/plain' });
-  const filename = opts?.filename ?? `text-${Date.now()}.txt`;
-  return saveBlob(blob, { ...opts, filename });
+  const blob = new Blob([text], { type: 'text/plain' })
+  return saveBlob(blob, { ...opts })
 }
 
-/**
- * Télécharge du JSON vers Vercel Blob
- */
 export async function uploadJSON(
   data: any,
-  opts?: { prefix?: string; filename?: string; access?: 'public' | 'private' }
+  opts?: Omit<SaveBlobOptions, 'filename'> & { filename?: string }
 ): Promise<PutBlobResult> {
-  const jsonText = JSON.stringify(data);
-  const blob = new Blob([jsonText], { type: 'application/json' });
-  const filename = opts?.filename ?? `data-${Date.now()}.json`;
-  return saveBlob(blob, { ...opts, filename });
+  const jsonText = JSON.stringify(data)
+  const blob = new Blob([jsonText], { type: 'application/json' })
+  return saveBlob(blob, { ...opts })
 }
 
-/**
- * Récupère et parse un fichier JSON depuis Vercel Blob
- */
 export async function getJSON<T = any>(urlOrPathname: string): Promise<T> {
-  const text = await getText(urlOrPathname);
-  return JSON.parse(text) as T;
+  const text = await getText(urlOrPathname)
+  return JSON.parse(text) as T
 }
