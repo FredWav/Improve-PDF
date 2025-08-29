@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@sparticuz/chromium": "138.0.2",
+    "@vercel/blob": "1.1.1",
     "diff": "5.2.0",
     "epub-gen": "0.1.0",
     "formidable": "3.5.4",
