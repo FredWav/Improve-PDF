@@ -42,6 +42,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       ok: true,
+      fileId: uploaded.pathname, // added to fix frontend expectation
       url: uploaded.url,
       pathname: uploaded.pathname,
       size: uploaded.size,
