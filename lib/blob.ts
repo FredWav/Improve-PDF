@@ -1,4 +1,3 @@
-// lib/blob.ts
 import { del, list, put, type PutBlobResult } from '@vercel/blob';
 
 /**
