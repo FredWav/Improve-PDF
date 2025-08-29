@@ -46,6 +46,32 @@ export interface JobStatus {
 
 const MANIFEST_PATH = (id: string) => `jobs/${id}/manifest.json`
 
+// Retry settings to mitigate eventual consistency / latency of underlying storage
+const RETRY_ATTEMPTS = 6
+const RETRY_BASE_DELAY_MS = 30 // backoff base; total worst-case delay ~ (1+..+6)*30 ~= 630ms
+
+function sleep(ms: number) {
+  return new Promise(res => setTimeout(res, ms))
+}
+
+async function loadJobStatusOnce(id: string): Promise<JobStatus | null> {
+  try {
+    return await getJSON<JobStatus>(MANIFEST_PATH(id))
+  } catch {
+    return null
+  }
+}
+
+async function getJobOrThrow(id: string): Promise<JobStatus> {
+  for (let attempt = 0; attempt < RETRY_ATTEMPTS; attempt++) {
+    const job = await loadJobStatusOnce(id)
+    if (job) return job
+    // progressive backoff
+    await sleep(RETRY_BASE_DELAY_MS * (attempt + 1))
+  }
+  throw new Error(`Job ${id} not found after ${RETRY_ATTEMPTS} attempts`)
+}
+
 export async function createJobStatus(
   id: string,
   filename?: string,
@@ -88,11 +114,7 @@ export async function saveJobStatus(status: JobStatus): Promise<void> {
 }
 
 export async function loadJobStatus(id: string): Promise<JobStatus | null> {
-  try {
-    return await getJSON<JobStatus>(MANIFEST_PATH(id))
-  } catch {
-    return null
-  }
+  return loadJobStatusOnce(id)
 }
 
 export async function updateStepStatus(
@@ -101,8 +123,7 @@ export async function updateStepStatus(
   statusValue: StepStatus,
   message?: string
 ): Promise<void> {
-  const jobStatus = await loadJobStatus(id)
-  if (!jobStatus) throw new Error(`Job ${id} not found`)
+  const jobStatus = await getJobOrThrow(id)
   jobStatus.steps[step] = statusValue
   if (message) {
     jobStatus.logs.push({
@@ -119,8 +140,7 @@ export async function addJobOutput(
   outputType: keyof JobStatus['outputs'],
   url: string
 ): Promise<void> {
-  const jobStatus = await loadJobStatus(id)
-  if (!jobStatus) throw new Error(`Job ${id} not found`)
+  const jobStatus = await getJobOrThrow(id)
   jobStatus.outputs[outputType] = url
   jobStatus.logs.push({
     timestamp: new Date().toISOString(),
@@ -135,8 +155,7 @@ export async function addJobLog(
   level: 'info' | 'warn' | 'error',
   message: string
 ): Promise<void> {
-  const jobStatus = await loadJobStatus(id)
-  if (!jobStatus) throw new Error(`Job ${id} not found`)
+  const jobStatus = await getJobOrThrow(id)
   jobStatus.logs.push({
     timestamp: new Date().toISOString(),
     level,
@@ -149,15 +168,13 @@ export async function updateJobMetadata(
   id: string,
   metadata: Partial<JobStatus['metadata']>
 ): Promise<void> {
-  const jobStatus = await loadJobStatus(id)
-  if (!jobStatus) throw new Error(`Job ${id} not found`)
+  const jobStatus = await getJobOrThrow(id)
   jobStatus.metadata = { ...jobStatus.metadata, ...metadata }
   await saveJobStatus(jobStatus)
 }
 
 export async function completeJob(id: string): Promise<void> {
-  const jobStatus = await loadJobStatus(id)
-  if (!jobStatus) throw new Error(`Job ${id} not found`)
+  const jobStatus = await getJobOrThrow(id)
   Object.keys(jobStatus.steps).forEach(k => {
     const key = k as keyof JobStatus['steps']
     if (jobStatus.steps[key] === 'PENDING' || jobStatus.steps[key] === 'RUNNING') {
@@ -177,8 +194,7 @@ export async function failJob(
   error: string,
   step?: keyof JobStatus['steps']
 ): Promise<void> {
-  const jobStatus = await loadJobStatus(id)
-  if (!jobStatus) throw new Error(`Job ${id} not found`)
+  const jobStatus = await getJobOrThrow(id)
   if (step) jobStatus.steps[step] = 'FAILED'
   jobStatus.logs.push({
     timestamp: new Date().toISOString(),
