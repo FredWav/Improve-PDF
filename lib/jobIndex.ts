@@ -16,7 +16,8 @@ export async function appendJobId(id: string) {
   const ids = await loadIndex()
   if (!ids.includes(id)) {
     ids.push(id)
-    await uploadJSON(ids, { key: INDEX_PATH, addTimestamp: false })
+    // allowOverwrite so repeated writes to index work
+    await uploadJSON(ids, { key: INDEX_PATH, addTimestamp: false, allowOverwrite: true })
   }
 }
 
