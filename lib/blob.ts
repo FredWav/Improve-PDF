@@ -32,6 +32,12 @@ function requireReadWriteToken(): string {
       'Missing BLOB_READ_WRITE_TOKEN environment variable. Create a Blob store in Vercel and add the token to your project settings.'
     )
   }
+  // Check if it's a placeholder value
+  if (token.includes('your_vercel_blob_token_here') || token.includes('your_') || token.length < 50) {
+    throw new Error(
+      'BLOB_READ_WRITE_TOKEN appears to be a placeholder value. Please set a real Vercel Blob token.'
+    )
+  }
   return token
 }
 
@@ -40,8 +46,29 @@ export async function saveBlob(
   opts?: SaveBlobOptions
 ): Promise<StoredBlobResult> {
   const key = buildKey(file, opts)
-  const token = requireReadWriteToken()
+  
+  // Development mode: check if token is valid
+  const token = process.env.BLOB_READ_WRITE_TOKEN
+  const isPlaceholder = !token || token.includes('your_vercel_blob_token_here') || token.includes('your_') || token.length < 50
+  
+  if (isPlaceholder) {
+    // Development mode: return mock blob result
+    console.log('[DEV MODE] Using mock blob storage for key:', key)
+    const mockUrl = `https://mock-blob.dev/${key}`
+    const size = file instanceof File ? file.size : (file as any).size ?? 0
+    const uploadedAt = new Date().toISOString()
+    
+    return {
+      url: mockUrl,
+      pathname: key,
+      contentType: file instanceof File ? (file.type || 'application/octet-stream') : 'application/octet-stream',
+      contentDisposition: `attachment; filename="${file instanceof File ? file.name : 'file'}"`,
+      size,
+      uploadedAt
+    }
+  }
 
+  // Production mode: use real Vercel blob
   const putOptions: any = {
     access: opts?.access ?? 'public',
     token
@@ -81,15 +108,25 @@ export async function deleteBlob(urlOrPathname: string) {
 }
 
 export async function getFile(pathOrUrl: string): Promise<Response> {
+  const token = process.env.BLOB_READ_WRITE_TOKEN
+  const isPlaceholder = !token || token.includes('your_vercel_blob_token_here') || token.includes('your_') || token.length < 50
+  
+  if (isPlaceholder && pathOrUrl.includes('mock-blob.dev')) {
+    // Development mode: return mock response
+    console.log('[DEV MODE] Mock file fetch for:', pathOrUrl)
+    return new Response('Mock file content for development', {
+      status: 200,
+      headers: { 'content-type': 'text/plain' }
+    })
+  }
+
   const isFull = /^https?:\/\//i.test(pathOrUrl)
   const url = isFull
     ? pathOrUrl
     : `https://blob.vercel-storage.com/${pathOrUrl.replace(/^\/+/,'')}`
 
   const headers: Record<string, string> = {}
-  const token =
-    process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_READ_ONLY_TOKEN
-  if (token) headers['Authorization'] = `Bearer ${token}`
+  if (token && !isPlaceholder) headers['Authorization'] = `Bearer ${token}`
 
   const res = await fetch(url, { headers })
   if (!res.ok) {
@@ -112,14 +149,6 @@ export async function getJSON<T = any>(pathOrUrl: string): Promise<T> {
 
 export async function uploadText(
   text: string,
-  key: string
-): Promise<StoredBlobResult>
-export async function uploadText(
-  text: string,
-  opts?: SaveBlobOptions
-): Promise<StoredBlobResult>
-export async function uploadText(
-  text: string,
   keyOrOpts?: string | SaveBlobOptions
 ): Promise<StoredBlobResult> {
   const blob = new Blob([text], { type: 'text/plain' })
@@ -129,14 +158,6 @@ export async function uploadText(
   return saveBlob(blob, keyOrOpts)
 }
 
-export async function uploadJSON(
-  data: any,
-  key: string
-): Promise<StoredBlobResult>
-export async function uploadJSON(
-  data: any,
-  opts?: SaveBlobOptions
-): Promise<StoredBlobResult>
 export async function uploadJSON(
   data: any,
   keyOrOpts?: string | SaveBlobOptions

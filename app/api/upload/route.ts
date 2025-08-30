@@ -6,7 +6,8 @@ export const dynamic = 'force-dynamic'
 
 export async function POST(req: Request) {
   try {
-    if (!process.env.BLOB_READ_WRITE_TOKEN) {
+    const token = process.env.BLOB_READ_WRITE_TOKEN
+    if (!token) {
       return NextResponse.json(
         {
           ok: false,
@@ -17,13 +18,19 @@ export async function POST(req: Request) {
       )
     }
 
-    // Debug temporaire (à retirer quand confirmé)
-    console.log(
-      '[upload] token prefix:',
-      process.env.BLOB_READ_WRITE_TOKEN.slice(0, 16),
-      'len=',
-      process.env.BLOB_READ_WRITE_TOKEN.length
-    )
+    // Check for placeholder values
+    const isPlaceholder = token.includes('your_vercel_blob_token_here') || token.includes('your_') || token.length < 50
+    if (isPlaceholder) {
+      console.log('[DEV MODE] Using development blob storage (placeholder token detected)')
+    } else {
+      // Debug temporaire (à retirer quand confirmé)
+      console.log(
+        '[upload] token prefix:',
+        token.slice(0, 16),
+        'len=',
+        token.length
+      )
+    }
 
     const form = await req.formData()
     const file = form.get('file')
@@ -42,6 +49,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       ok: true,
+      key: uploaded.pathname, // primary field expected by frontend
       fileId: uploaded.pathname, // added to fix frontend expectation
       url: uploaded.url,
       pathname: uploaded.pathname,
