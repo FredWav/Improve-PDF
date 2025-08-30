@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { NextRequest, NextResponse } from 'next/server'
 import { loadJobStatus } from '@/lib/status'
 import { getFile } from '@/lib/blob'
@@ -17,7 +19,7 @@ const TYPE_MAP: Record<string, keyof import('@/lib/status').JobOutputs> = {
 }
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: { jobId: string; type: string } }
 ) {
   const { jobId, type } = params
@@ -40,10 +42,17 @@ export async function GET(
       )
     }
 
-    const res = await getFile(outputUrl)
-    const blob = await res.blob()
+    // Récupère le fichier depuis Vercel Blob (ou autre backend)…
+    const upstream = await getFile(outputUrl)
+    if (!upstream.ok || !upstream.body) {
+      return NextResponse.json(
+        { error: `Upstream fetch failed (${upstream.status})` },
+        { status: 502 }
+      )
+    }
 
-    let contentType = res.headers.get('content-type') || 'application/octet-stream'
+    // Détermine content-type + nom du fichier (exactement comme ton code)
+    let contentType = upstream.headers.get('content-type') || 'application/octet-stream'
     let filename = `${jobId}-${type}`
 
     switch (type) {
@@ -53,42 +62,47 @@ export async function GET(
       case 'md':
         contentType = 'text/markdown'
         filename += '.md'
-        break;
+        break
       case 'rendered-html':
       case 'html':
         contentType = 'text/html'
         filename += '.html'
-        break;
+        break
       case 'rendered-markdown':
         contentType = 'text/markdown'
         filename += '.md'
-        break;
+        break
       case 'pdf-output':
       case 'pdf':
         contentType = 'application/pdf'
         filename += '.pdf'
-        break;
+        break
       case 'epub':
         contentType = 'application/epub+zip'
         filename += '.epub'
-        break;
+        break
       case 'report':
         contentType = 'text/markdown'
         filename += '-report.md'
-        break;
+        break
     }
 
-    return new NextResponse(blob, {
-      headers: {
-        'Content-Type': contentType,
-        'Content-Disposition': `attachment; filename="${filename}"`
-      }
-    })
+    // Option ?inline=1 pour affichage dans le navigateur si tu veux
+    const inline = req.nextUrl.searchParams.get('inline') === '1'
+
+    // On streame le corps directement (plus efficace que blob/arrayBuffer)
+    const headers = new Headers()
+    headers.set('Content-Type', contentType)
+    headers.set(
+      'Content-Disposition',
+      `${inline ? 'inline' : 'attachment'}; filename="${filename}"`
+    )
+    // On évite d'envoyer un content-length incorrect en proxy
+    headers.set('Cache-Control', 'no-store')
+
+    return new NextResponse(upstream.body, { headers })
   } catch (err) {
     console.error('Download error:', err)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
