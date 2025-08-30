@@ -8,30 +8,35 @@ type AnyJob = Record<string, any>
 
 function StatusBadge({ failed, percent }: { failed: boolean; percent: number }) {
   const base = 'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium'
-  if (failed) {
-    return <span className={`${base} bg-red-50 text-red-700 ring-1 ring-red-200`}>Échec</span>
-  }
-  if (percent === 100) {
-    return <span className={`${base} bg-green-50 text-green-700 ring-1 ring-green-200`}>Terminé</span>
-  }
+  if (failed) return <span className={`${base} bg-red-50 text-red-700 ring-1 ring-red-200`}>Échec</span>
+  if (percent === 100) return <span className={`${base} bg-green-50 text-green-700 ring-1 ring-green-200`}>Terminé</span>
   return <span className={`${base} bg-blue-50 text-blue-700 ring-1 ring-blue-200`}>En cours</span>
 }
 
 export function JobsPanel() {
   const { jobs, error } = useRecentJobs()
 
+  // 404 -> on traite comme "aucun job"
+  if (error && String(error).includes('404')) {
+    return (
+      <div className="rounded-lg border border-dashed border-slate-200 bg-white/70 p-6 text-center text-sm text-slate-500">
+        Aucun job récent pour l’instant.
+      </div>
+    )
+  }
+
   if (error) {
     return (
-      <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2">
-        Erreur chargement jobs: {error}
+      <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+        Impossible de charger les jobs récents pour le moment.
       </div>
     )
   }
 
   if (!jobs.length) {
     return (
-      <div className="text-sm text-slate-500 border border-dashed border-slate-200 rounded-lg px-4 py-8 text-center">
-        Aucun job récent.
+      <div className="rounded-lg border border-dashed border-slate-200 bg-white/70 p-6 text-center text-sm text-slate-500">
+        Aucun job récent pour l’instant.
       </div>
     )
   }
@@ -39,7 +44,6 @@ export function JobsPanel() {
   return (
     <div className="space-y-3">
       {jobs.map((raw: AnyJob) => {
-        // Harmonise filename/fileName
         const filename = raw.filename ?? raw.fileName ?? ''
         const job: AnyJob = { ...raw, filename }
 
@@ -49,7 +53,6 @@ export function JobsPanel() {
           completedSteps: number
           totalSteps: number
           failed: boolean
-          activeStepStatus: string
         }>
 
         const percent = typeof info.percent === 'number' ? info.percent : 0
@@ -61,7 +64,7 @@ export function JobsPanel() {
         return (
           <div
             key={job.id}
-            className="rounded-xl border border-slate-200 bg-white/80 backdrop-blur-sm shadow-sm ring-1 ring-black/[0.02] p-4"
+            className="rounded-xl border border-slate-200 bg-white/80 backdrop-blur-sm shadow-sm ring-1 ring-black/5 p-4"
           >
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
@@ -71,7 +74,9 @@ export function JobsPanel() {
                   </div>
                   <StatusBadge failed={failed} percent={percent} />
                 </div>
-                <p className="mt-1 text-[11px] text-slate-600 line-clamp-2">{narrative}</p>
+                {narrative && (
+                  <p className="mt-1 text-[11px] text-slate-600 line-clamp-2">{narrative}</p>
+                )}
               </div>
               <Link
                 href={`/ebook/${job.id}`}
