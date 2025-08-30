@@ -1,101 +1,123 @@
 'use client'
+import React, { useCallback, useState } from 'react'
 
-import React, { useState } from 'react'
-import Link from 'next/link'
-import { UploadZone } from '@/components/UploadZone'
-import { JobsPanel } from '@/components/JobsPanel'
-import { t } from '@/lib/i18n'
+interface UploadZoneProps {
+  onUploaded: (data: any) => void | Promise<void>
+  className?: string
+  disabled?: boolean
+}
 
-// Export nommé + default pour éviter tout souci d'import
-export function HomePageClient() {
-  const [submitting, setSubmitting] = useState(false)
-  const [enqueueError, setEnqueueError] = useState<string | null>(null)
+export function UploadZone({ onUploaded, className = '', disabled = false }: UploadZoneProps) {
+  const [drag, setDrag] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const effectiveDisabled = disabled || loading
+
+  const handleFile = useCallback(async (file: File) => {
+    if (effectiveDisabled) return
+    setError(null)
+    setLoading(true)
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const res = await fetch('/api/upload', { method: 'POST', body: form })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json?.error || 'Upload failed')
+      await onUploaded(json)
+    } catch (e: any) {
+      setError(e?.message || 'Erreur')
+    } finally {
+      setLoading(false)
+    }
+  }, [onUploaded, effectiveDisabled])
+
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    if (effectiveDisabled) return
+    setDrag(false)
+    const f = e.dataTransfer.files?.[0]
+    if (f) handleFile(f)
+  }
 
   return (
-    <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8 py-10">
-      {/* HERO */}
-      <div className="mb-8">
-        <h1 className="text-4xl font-extrabold tracking-tight text-slate-900">
-          Improve <span className="bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">PDF</span>
-        </h1>
-        <p className="mt-2 text-[15px] leading-relaxed text-slate-600 max-w-3xl">
-          Interface personnelle&nbsp;: chaque étape t’explique ce qu’elle fait.
-          Ouvre un job pour voir les détails narratifs en direct.
-        </p>
-      </div>
+    <div className={className}>
+      <div
+        onDragOver={(e) => { e.preventDefault(); if (!effectiveDisabled) setDrag(true) }}
+        onDragLeave={() => { if (!effectiveDisabled) setDrag(false) }}
+        onDrop={onDrop}
+        onClick={() => { if (!effectiveDisabled) document.getElementById('file-input-zone')?.click() }}
+        onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && !effectiveDisabled) document.getElementById('file-input-zone')?.click() }}
+        tabIndex={0}
+        role="button"
+        aria-disabled={effectiveDisabled}
+        className={[
+          'relative grid place-items-center h-56 w-full rounded-2xl border-2 border-dashed bg-white/80 backdrop-blur-sm',
+          'transition-all duration-200 ease-out ring-1 ring-black/5 shadow-sm',
+          drag ? 'border-blue-400 bg-blue-50/60 ring-blue-200 cursor-copy' : 'border-slate-300 hover:border-slate-400 hover:bg-slate-50 cursor-pointer',
+          effectiveDisabled ? 'opacity-60 pointer-events-none' : '',
+        ].join(' ')}
+      >
+        <input
+          id="file-input-zone"
+          type="file"
+          hidden
+          disabled={effectiveDisabled}
+          onChange={e => {
+            const f = e.target.files?.[0]
+            if (f) handleFile(f)
+          }}
+          accept=".pdf"
+        />
 
-      {/* GRILLE : Upload à gauche, infos à droite */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start mb-10">
-        <div className="lg:col-span-2">
-          <div className="rounded-2xl border border-slate-200 bg-white/80 backdrop-blur-sm shadow-sm ring-1 ring-black/5 p-6">
-            <h2 className="text-lg font-semibold text-slate-800 mb-4">
-              {t('actions.upload') || 'Importer un PDF'}
-            </h2>
+        <div className="text-center">
+          {/* Icône */}
+          <div className="mx-auto mb-4 w-14 h-14 rounded-full bg-gradient-to-br from-blue-50 to-indigo-50 flex items-center justify-center ring-1 ring-slate-200">
+            <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden className="opacity-90">
+              <path d="M7 18h10a4 4 0 0 0 0-8 5 5 0 0 0-9.6-1.6A3.5 3.5 0 0 0 7 18Z" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M12 12v6m0 0l-2.5-2.5M12 18l2.5-2.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </div>
 
-            <UploadZone
-              disabled={submitting}
-              onUploaded={async (data: any) => {
-                try {
-                  setSubmitting(true)
-                  setEnqueueError(null)
-                  const res = await fetch('/api/enqueue', {
-                    method: 'POST',
-                    headers: { 'content-type': 'application/json' },
-                    body: JSON.stringify({
-                      fileKey: data?.key || data?.url || data?.path,
-                      filename: data?.filename || data?.name || 'document.pdf',
-                    }),
-                  })
-                  if (!res.ok) {
-                    const j = await res.json().catch(() => ({}))
-                    throw new Error(j?.error || `Enqueue failed (${res.status})`)
-                  }
-                } catch (e: any) {
-                  setEnqueueError(e?.message ?? 'Erreur lors de la mise en file')
-                } finally {
-                  setSubmitting(false)
-                }
-              }}
-            />
+          <div className="text-[15px] font-semibold text-slate-800">
+            Glissez-déposez votre fichier ici
+          </div>
+          <div className="mt-1 text-sm text-slate-500">
+            ou
+          </div>
 
-            {enqueueError && (
-              <div className="mt-4 text-sm text-red-600">
-                {enqueueError}
-              </div>
-            )}
+          {/* Beau bouton arrondi */}
+          <button
+            type="button"
+            className="mt-3 inline-flex items-center justify-center rounded-xl px-4 py-2.5 text-sm font-medium text-white shadow-sm
+                       bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700
+                       focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 active:scale-[.99] transition"
+            onClick={(e) => {
+              e.stopPropagation()
+              document.getElementById('file-input-zone')?.click()
+            }}
+          >
+            Choisir un fichier
+          </button>
 
-            <p className="mt-4 text-xs text-slate-500">
-              Besoin d’aide ?{' '}
-              <Link href="/docs" className="text-blue-600 hover:underline">
-                Consulte la doc
-              </Link>.
-            </p>
+          <div className="mt-3 text-[11px] text-slate-400">
+            PDF uniquement<span className="mx-1">•</span>Max. 50 Mo
           </div>
         </div>
 
-        {/* Carte “comment ça marche” / rassurance */}
-        <aside className="rounded-2xl border border-slate-200 bg-white/80 backdrop-blur-sm shadow-sm ring-1 ring-black/5 p-6">
-          <h3 className="text-sm font-semibold text-slate-800 mb-3">Comment ça marche&nbsp;?</h3>
-          <ol className="space-y-3 text-[13px] text-slate-600">
-            <li>1. Dépose ton PDF ci-contre.</li>
-            <li>2. Extraction → Nettoyage → Réécriture → Images → Rendu.</li>
-            <li>3. Suis la progression en direct et récupère HTML/MD/PDF/EPUB.</li>
-          </ol>
-          <div className="mt-4 text-[11px] text-slate-400">
-            Tes fichiers sont traités de façon éphémère pour générer les livrables.
-          </div>
-        </aside>
+        {/* Aura bleue au survol/drag */}
+        <div className={[
+          'absolute inset-0 rounded-2xl pointer-events-none transition-opacity duration-200',
+          drag ? 'opacity-100 ring-2 ring-blue-400/60' : 'opacity-0'
+        ].join(' ')} />
       </div>
 
-      {/* Jobs récents */}
-      <section>
-        <h3 className="text-base font-semibold text-slate-800 mb-3">
-          Traitements récents
-        </h3>
-        <JobsPanel />
-      </section>
+      {loading && (
+        <div className="mt-3 text-sm text-slate-600 animate-pulse">
+          Téléversement en cours…
+        </div>
+      )}
+      {error && <div className="mt-3 text-sm text-red-600">{error}</div>}
     </div>
   )
 }
-
-export default HomePageClient
