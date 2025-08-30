@@ -1,80 +1,83 @@
 'use client'
+
+import React, { useState } from 'react'
+import Link from 'next/link'
 import { UploadZone } from '@/components/UploadZone'
 import { JobsPanel } from '@/components/JobsPanel'
 import { t } from '@/lib/i18n'
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
 
-export function HomePageClient() {
-  const [enqueueError, setEnqueueError] = useState<string | null>(null)
+export default function HomePageClient() {
   const [submitting, setSubmitting] = useState(false)
-  const router = useRouter()
+  const [enqueueError, setEnqueueError] = useState<string | null>(null)
 
   return (
-    <main className="max-w-6xl mx-auto px-6 py-10 space-y-10">
-      <header className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold text-slate-800">
+    <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8 py-10">
+      {/* Titre + sous-titre */}
+      <div className="mb-6">
+        <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-slate-900">
           Improve PDF
         </h1>
-      </header>
+        <p className="mt-2 text-sm text-slate-600">
+          Interface personnelle&nbsp;: chaque étape t’explique ce qu’elle fait. Ouvre un job pour voir les détails narratifs en direct.
+        </p>
+      </div>
 
-      <section className="grid md:grid-cols-5 gap-10 items-start">
-        <div className="md:col-span-2 space-y-6">
-          <div className="bg-white border rounded-lg p-6 shadow-sm">
-            <h2 className="text-lg font-medium mb-4">{t('actions.upload')}</h2>
-            <UploadZone
-              disabled={submitting}
-              onUploaded={async (data) => {
-                setSubmitting(true)
-                setEnqueueError(null)
-                try {
-                  const res = await fetch('/api/enqueue', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      fileId: data.fileId || data.pathname,
-                      filename:
-                        data.originalName ||
-                        data.filename ||
-                        data.pathname
-                    })
-                  })
-                  if (!res.ok) {
-                    throw new Error(await res.text())
-                  }
-                  const json = await res.json()
-                  // Rediriger directement vers la page détaillée verbueuse
-                  if (json.jobId) {
-                    router.push(`/ebook/${json.jobId}`)
-                  }
-                } catch (e: any) {
-                  setEnqueueError(e.message || 'Erreur envoi')
-                } finally {
-                  setSubmitting(false)
-                }
-              }}
-            />
-            {enqueueError && (
-              <p className="mt-3 text-xs text-red-600">{enqueueError}</p>
-            )}
-            {submitting && (
-              <p className="mt-3 text-xs text-blue-600 animate-pulse">
-                Création du job et initialisation…
-              </p>
-            )}
-          </div>
-
-          <div className="text-xs text-slate-500 space-y-1">
-            <p>Interface personnelle: chaque étape t’explique ce qu’elle fait.</p>
-            <p>Tu peux ouvrir un job pour voir les détails narratifs en direct.</p>
-          </div>
+      {/* Carte upload (verre dépoli, propre) */}
+      <div className="rounded-2xl border border-slate-200 bg-white/80 backdrop-blur-sm shadow-sm ring-1 ring-black/[0.02] p-6 sm:p-8 mb-10">
+        <div className="mb-4">
+          <h2 className="text-lg font-semibold text-slate-800">
+            {t('actions.upload') || 'Importer un PDF'}
+          </h2>
         </div>
 
-        <div className="md:col-span-3 space-y-4">
-          <h2 className="text-lg font-medium">{t('job.recent')}</h2>
-          <JobsPanel />
-        </div>
-      </section>
-    </main>
+        <UploadZone
+          disabled={submitting}
+          onUploaded={async (data: any) => {
+            // data attendu depuis /api/upload : { key, filename, ... }
+            try {
+              setSubmitting(true)
+              setEnqueueError(null)
+              const res = await fetch('/api/enqueue', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({
+                  fileKey: data?.key || data?.url || data?.path,
+                  filename: data?.filename || data?.name || 'document.pdf',
+                }),
+              })
+              if (!res.ok) {
+                const j = await res.json().catch(() => ({}))
+                throw new Error(j?.error || `Enqueue failed (${res.status})`)
+              }
+              // Option : rediriger vers la page du job si renvoyée par l’API
+              // const { id } = await res.json()
+              // if (id) router.push(`/ebook/${id}`)
+            } catch (e: any) {
+              setEnqueueError(e?.message ?? 'Erreur lors de la mise en file')
+            } finally {
+              setSubmitting(false)
+            }
+          }}
+        />
+
+        {enqueueError && (
+          <div className="mt-4 text-sm text-red-600">
+            {enqueueError}
+          </div>
+        )}
+
+        <p className="mt-4 text-xs text-slate-500">
+          Besoin d’aide ? <Link href="/docs" className="text-blue-600 hover:underline">Consulte la doc</Link>.
+        </p>
+      </div>
+
+      {/* Jobs récents */}
+      <div>
+        <h3 className="text-base font-semibold text-slate-800 mb-3">
+          Traitements récents
+        </h3>
+        <JobsPanel />
+      </div>
+    </div>
   )
 }
