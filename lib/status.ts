@@ -1,9 +1,9 @@
-// === AJOUT NON-BREAKING POUR L'UI DES JOBS ===
+// === AJOUTS SÛRS: exports explicites + helpers UI ===
 
-// Statut global normalisé, commun à la liste (RecentJob) et au détail (JobStatus)
+// Statut global simplifié (pour l’UI liste)
 export type OverallStatus = 'queued' | 'processing' | 'succeeded' | 'failed'
 
-// Type léger utilisé côté liste/récents
+// Entrée légère utilisée côté liste de jobs
 export type RecentJob = {
   id: string
   status: OverallStatus
@@ -11,42 +11,30 @@ export type RecentJob = {
   createdAt?: string | number
 }
 
-// Type guard : détecte si on a un JobStatus complet (celui déjà défini dans ce fichier)
+// Type guard : détecte si on a un JobStatus complet (défini plus haut)
 function isFullJobStatus(x: any): x is JobStatus {
-  return (
-    x &&
-    typeof x === 'object' &&
-    x.steps &&
-    typeof x.steps === 'object' &&
-    Array.isArray(x.logs)
-  )
+  return x && typeof x === 'object' && x.steps && typeof x.steps === 'object' && Array.isArray(x.logs)
 }
 
-// Déduit un statut global à partir des steps du JobStatus
+// Déduit un statut global à partir des steps d’un JobStatus
 export function getOverallStatusFromSteps(job: JobStatus): OverallStatus {
   const values = Object.values(job.steps)
   if (values.includes('FAILED')) return 'failed'
   if (values.every(s => s === 'COMPLETED')) return 'succeeded'
   if (values.includes('RUNNING')) return 'processing'
-  // s’il reste au moins un PENDING et rien ne tourne, on considère "queued"
-  return 'queued'
+  return 'queued' // il reste du PENDING, rien ne tourne
 }
 
-// Infos d’affichage pour un job (badges, libellés, sous-libellés)
+// Infos d’affichage unifiées (badge, labels)
 export type JobInfo = {
   label: string
   sublabel?: string
   badgeColor: 'gray' | 'blue' | 'green' | 'red'
 }
 
-/**
- * Unifie l’info d’affichage, que l’on fournisse un RecentJob (liste)
- * ou un JobStatus (détail). NE MODIFIE AUCUNE FONCTION EXISTANTE.
- */
+/** Unifie l’info d’affichage qu’on passe un RecentJob (liste) ou un JobStatus (détail). */
 export function deriveJobInfo(job: RecentJob | JobStatus): JobInfo {
-  const status: OverallStatus = isFullJobStatus(job)
-    ? getOverallStatusFromSteps(job)
-    : job.status
+  const status: OverallStatus = isFullJobStatus(job) ? getOverallStatusFromSteps(job) : job.status
 
   const badgeColor: JobInfo['badgeColor'] =
     status === 'queued' ? 'gray'
@@ -60,11 +48,9 @@ export function deriveJobInfo(job: RecentJob | JobStatus): JobInfo {
     : status === 'succeeded' ? 'Terminé'
     : 'Échec'
 
-  // Attention : dans JobStatus, le nom de fichier est `filename` (et pas fileName)
   const baseName = (isFullJobStatus(job) ? job.filename : job.filename) || ''
-
-  // Optionnel : on affiche le nombre d’étapes si on a un JobStatus en cours
   let sublabel = baseName
+
   if (isFullJobStatus(job)) {
     const stepCount = Object.keys(job.steps || {}).length
     const running = Object.values(job.steps || {}).includes('RUNNING')
@@ -75,4 +61,24 @@ export function deriveJobInfo(job: RecentJob | JobStatus): JobInfo {
   }
 
   return { label, sublabel: sublabel || undefined, badgeColor }
+}
+
+/**
+ * IMPORTANT : on force ici les exports nommés attendus par les routes API et les autres modules.
+ * On ne supprime rien au-dessus, on rend juste l’API du module explicite.
+ */
+export {
+  // valeur/fonctions existantes attendues par les imports
+  loadJobStatus,
+  createJobStatus,
+  saveJobStatus,
+  updateStepStatus,
+  addJobOutput,
+  addJobLog,
+  updateJobMetadata,
+  completeJob,
+  failJob,
+  listJobs,
+  saveProcessingData,
+  generateJobId
 }
