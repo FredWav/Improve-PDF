@@ -3,6 +3,7 @@ import { saveBlob } from '@/lib/blob'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
+export const maxDuration = 60
 
 export async function POST(req: Request) {
   try {
@@ -16,16 +17,7 @@ export async function POST(req: Request) {
         { status: 500 }
       )
     }
-
-    // Debug temporaire (à retirer quand confirmé)
-    console.log(
-      '[upload] token prefix:',
-      process.env.BLOB_READ_WRITE_TOKEN.slice(0, 16),
-      'len=',
-      process.env.BLOB_READ_WRITE_TOKEN.length
-    )
-
-    const form = await req.formData()
+const form = await req.formData()
     const file = form.get('file')
     if (!(file instanceof File)) {
       return NextResponse.json(

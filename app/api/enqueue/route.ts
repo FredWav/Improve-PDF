@@ -1,4 +1,5 @@
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 import { NextResponse } from 'next/server'
 import {
@@ -9,6 +10,9 @@ import {
 
 export async function POST(req: Request) {
   try {
+    if (!process.env.BLOB_READ_WRITE_TOKEN) {
+      return NextResponse.json({ error: 'Server missing BLOB_READ_WRITE_TOKEN (configure Vercel Blob in Project Settings)' }, { status: 500 });
+    }
     const ct = req.headers.get('content-type') || ''
     let body: any = {}
 
@@ -18,7 +22,10 @@ export async function POST(req: Request) {
       const form = await req.formData()
       body = Object.fromEntries(form as any)
     } else {
-      try { body = await req.json() } catch { body = {} }
+      try {
+    if (!process.env.BLOB_READ_WRITE_TOKEN) {
+      return NextResponse.json({ error: 'Server missing BLOB_READ_WRITE_TOKEN (configure Vercel Blob in Project Settings)' }, { status: 500 });
+    } body = await req.json() } catch { body = {} }
     }
 
     const fileKey =
@@ -39,10 +46,16 @@ export async function POST(req: Request) {
       level: 'info',
       message: `Job enqueued with file: ${fileKey}`
     })
-    try { await saveJobStatus(status) } catch {}
+    try {
+    if (!process.env.BLOB_READ_WRITE_TOKEN) {
+      return NextResponse.json({ error: 'Server missing BLOB_READ_WRITE_TOKEN (configure Vercel Blob in Project Settings)' }, { status: 500 });
+    } await saveJobStatus(status) } catch {}
 
     // 3) Kickoff extract (non bloquant)
     try {
+    if (!process.env.BLOB_READ_WRITE_TOKEN) {
+      return NextResponse.json({ error: 'Server missing BLOB_READ_WRITE_TOKEN (configure Vercel Blob in Project Settings)' }, { status: 500 });
+    }
       const kickoffURL = new URL('/api/jobs/extract', req.url)
       await fetch(kickoffURL.toString(), {
         method: 'POST',
