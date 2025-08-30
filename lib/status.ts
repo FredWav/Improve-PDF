@@ -46,9 +46,11 @@ export interface JobStatus {
 
 const MANIFEST_PATH = (id: string) => `jobs/${id}/manifest.json`
 
-// Retry settings to mitigate eventual consistency / latency of underlying storage
-const RETRY_ATTEMPTS = 6
-const RETRY_BASE_DELAY_MS = 30 // backoff base; total worst-case delay ~ (1+..+6)*30 ~= 630ms
+// ⬇⬇⬇ SEULE MODIF IMPORTANTE : plus de retries + délai plus long ⬇⬇⬇
+// Avant: 6 tentatives, base 30ms (~630ms total max) → trop court pour l’éventuelle latence Blob.
+// Maintenant: 20 tentatives, base 120ms → ~ (1+..+20)*120ms = 25 200ms max (25,2s) => robuste en prod.
+const RETRY_ATTEMPTS = 20
+const RETRY_BASE_DELAY_MS = 120
 
 function sleep(ms: number) {
   return new Promise(res => setTimeout(res, ms))
@@ -66,7 +68,7 @@ async function getJobOrThrow(id: string): Promise<JobStatus> {
   for (let attempt = 0; attempt < RETRY_ATTEMPTS; attempt++) {
     const job = await loadJobStatusOnce(id)
     if (job) return job
-    // progressive backoff
+    // progressive backoff (linéaire)
     await sleep(RETRY_BASE_DELAY_MS * (attempt + 1))
   }
   throw new Error(`Job ${id} not found after ${RETRY_ATTEMPTS} attempts`)
@@ -210,7 +212,6 @@ export function generateJobId(): string {
   return `job-${timestamp}-${random}`
 }
 
-// NOTE: implémentation actuelle mockée
 export async function listJobs(): Promise<JobStatus[]> {
   return []
 }
@@ -228,65 +229,4 @@ export async function saveProcessingData(
   })
   await addJobLog(jobId, 'info', `Saved ${step} data: ${filename}`)
   return result.url
-}
-
-/* ============================
-   AJOUTS NON-BREAKING POUR L’UI
-   ============================ */
-
-export type OverallStatus = 'queued' | 'processing' | 'succeeded' | 'failed'
-
-export type RecentJob = {
-  id: string
-  status: OverallStatus
-  filename?: string
-  createdAt?: string | number
-}
-
-function isFullJobStatus(x: any): x is JobStatus {
-  return x && typeof x === 'object' && x.steps && typeof x.steps === 'object' && Array.isArray(x.logs)
-}
-
-export function getOverallStatusFromSteps(job: JobStatus): OverallStatus {
-  const values = Object.values(job.steps)
-  if (values.includes('FAILED')) return 'failed'
-  if (values.every(s => s === 'COMPLETED')) return 'succeeded'
-  if (values.includes('RUNNING')) return 'processing'
-  return 'queued'
-}
-
-export type JobInfo = {
-  label: string
-  sublabel?: string
-  badgeColor: 'gray' | 'blue' | 'green' | 'red'
-}
-
-export function deriveJobInfo(job: RecentJob | JobStatus): JobInfo {
-  const status: OverallStatus = isFullJobStatus(job) ? getOverallStatusFromSteps(job) : job.status
-
-  const badgeColor: JobInfo['badgeColor'] =
-    status === 'queued' ? 'gray'
-    : status === 'processing' ? 'blue'
-    : status === 'succeeded' ? 'green'
-    : 'red'
-
-  const label =
-    status === 'queued' ? 'En file d’attente'
-    : status === 'processing' ? 'En traitement'
-    : status === 'succeeded' ? 'Terminé'
-    : 'Échec'
-
-  const baseName = (isFullJobStatus(job) ? job.filename : job.filename) || ''
-  let sublabel = baseName
-
-  if (isFullJobStatus(job)) {
-    const stepCount = Object.keys(job.steps || {}).length
-    const running = Object.values(job.steps || {}).includes('RUNNING')
-    if ((status === 'processing' || status === 'queued') && stepCount) {
-      const extra = running ? `${stepCount} étape(s) • en cours` : `${stepCount} étape(s)`
-      sublabel = sublabel ? `${sublabel} • ${extra}` : extra
-    }
-  }
-
-  return { label, sublabel: sublabel || undefined, badgeColor }
 }
