@@ -6,83 +6,86 @@ import { ProgressBar } from '@/components/ProgressBar'
 
 type AnyJob = Record<string, any>
 
-// Fallbacks d’affichage si jamais le helper ne donne pas tout
-function fallbackPercent(status?: string) {
-  switch (status) {
-    case 'succeeded': return 100
-    case 'failed': return 100
-    case 'processing': return 50
-    case 'queued': return 10
-    default: return 0
+function StatusBadge({ failed, percent }: { failed: boolean; percent: number }) {
+  const base = 'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium'
+  if (failed) {
+    return <span className={`${base} bg-red-50 text-red-700 ring-1 ring-red-200`}>Échec</span>
   }
+  if (percent === 100) {
+    return <span className={`${base} bg-green-50 text-green-700 ring-1 ring-green-200`}>Terminé</span>
+  }
+  return <span className={`${base} bg-blue-50 text-blue-700 ring-1 ring-blue-200`}>En cours</span>
 }
 
 export function JobsPanel() {
   const { jobs, error } = useRecentJobs()
 
   if (error) {
-    return <div className="text-sm text-red-500">Erreur chargement jobs: {error}</div>
+    return (
+      <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2">
+        Erreur chargement jobs: {error}
+      </div>
+    )
   }
 
   if (!jobs.length) {
-    return <div className="text-sm text-slate-500">Aucun job récent.</div>
+    return (
+      <div className="text-sm text-slate-500 border border-dashed border-slate-200 rounded-lg px-4 py-8 text-center">
+        Aucun job récent.
+      </div>
+    )
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {jobs.map((raw: AnyJob) => {
-        // Harmonise le nom de fichier (fileName -> filename)
+        // Harmonise filename/fileName
         const filename = raw.filename ?? raw.fileName ?? ''
         const job: AnyJob = { ...raw, filename }
 
-        // On laisse le helper faire son taf, mais on prévoit des fallbacks clean
         const info = deriveJobInfo(job as any) as Partial<{
           percent: number
           narrative: string
           completedSteps: number
           totalSteps: number
           failed: boolean
+          activeStepStatus: string
         }>
 
-        const percent = typeof info.percent === 'number'
-          ? info.percent
-          : fallbackPercent(job.status)
-
+        const percent = typeof info.percent === 'number' ? info.percent : 0
+        const narrative = info.narrative ?? ''
         const completed = typeof info.completedSteps === 'number' ? info.completedSteps : 0
         const total = typeof info.totalSteps === 'number' ? info.totalSteps : 5
         const failed = Boolean(info.failed)
-        const narrative = info.narrative ?? ''
 
         return (
           <div
             key={job.id}
-            className="border rounded-md p-4 bg-white shadow-sm"
+            className="rounded-xl border border-slate-200 bg-white/80 backdrop-blur-sm shadow-sm ring-1 ring-black/[0.02] p-4"
           >
-            <div className="flex items-center justify-between mb-2">
-              <div className="font-medium text-sm truncate max-w-[60%]">
-                {filename || job.id}
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <div className="font-medium text-sm text-slate-800 truncate max-w-[60vw]">
+                    {filename || job.id}
+                  </div>
+                  <StatusBadge failed={failed} percent={percent} />
+                </div>
+                <p className="mt-1 text-[11px] text-slate-600 line-clamp-2">{narrative}</p>
               </div>
               <Link
                 href={`/ebook/${job.id}`}
-                className="text-xs text-blue-600 hover:underline shrink-0"
+                className="text-xs font-medium text-blue-700 hover:text-blue-800 hover:underline shrink-0"
               >
                 Ouvrir
               </Link>
             </div>
 
-            <div className="mb-2">
+            <div className="mt-3">
               <ProgressBar value={percent} />
-            </div>
-
-            {narrative && (
-              <p className="text-[11px] text-slate-600 line-clamp-2">
-                {narrative}
-              </p>
-            )}
-
-            <div className="mt-1 text-[11px] text-slate-400">
-              {completed}/{total} étapes
-              {failed && <span className="text-red-600 font-semibold ml-2">Échec</span>}
+              <div className="mt-1 text-[11px] text-slate-400">
+                {completed}/{total} étapes
+              </div>
             </div>
           </div>
         )
