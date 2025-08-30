@@ -1,45 +1,26 @@
-
-'use client'
-import { useEffect, useState } from 'react'
-
-export default function JobPage({ params }: { params: { id: string }}) {
-  const id = params.id
-  const [data, setData] = useState<any>(null)
-  const [err, setErr] = useState<string | null>(null)
-
-  useEffect(() => {
-    let t: any
-    const poll = async () => {
-      try {
-        const res = await fetch(`/api/status/${id}`, { cache: 'no-store' })
-        const json = await res.json()
-        setData(json)
-        if (!json || !json.steps || json.steps.render !== 'COMPLETED') {
-          t = setTimeout(poll, 1500)
-        }
-      } catch (e:any) { setErr(e.message) }
+"use client";
+import { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
+type M = { id:string; status:string; files:Record<string,string> };
+const order = ["queued","extract","normalize","rewrite","images","render"] as const;
+export default function Job(){
+  const { id } = useParams<{id:string}>(); const [m,setM]=useState<M|null>(null);
+  const [fired,setFired]=useState<Record<string,boolean>>({});
+  useEffect(()=>{ const t=setInterval(async()=>{ const r=await fetch(`/api/status/${id}`);
+    if(r.ok) setM(await r.json()); },1000); return()=>clearInterval(t); },[id]);
+  useEffect(()=>{ (async()=>{
+    if(!m) return; const i=order.indexOf(m.status as any); if(i>=0&&i<order.length){
+      const step=order[i]; if(!fired[step]){ setFired(p=>({...p,[step]:true}));
+        await fetch(`/api/jobs/${step}`,{method:"POST",body:JSON.stringify({id:m.id})});
+      }
     }
-    poll()
-    return () => { if (t) clearTimeout(t) }
-  }, [id])
-
-  if (err) return <p style={{color:'crimson'}}>Erreur: {err}</p>
-  if (!data) return <p>Chargement…</p>
-
-  return (
-    <main>
-      <h1 style={{fontSize:24, fontWeight:700, marginBottom:8}}>Job {id}</h1>
-      <ol>
-        {['extract','normalize','rewrite','images','render'].map(step => (
-          <li key={step}>{step}: <strong>{data.steps?.[step] || 'PENDING'}</strong></li>
-        ))}
-      </ol>
-      {data.outputs?.pdf && (
-        <p style={{marginTop:16}}>
-          <a href={`/api/download/${id}/pdf`}>Télécharger le PDF</a>
-        </p>
-      )}
-      <p style={{marginTop:8}}><a href="/">← Retour</a></p>
-    </main>
-  )
+  })(); },[m,fired]);
+  return(<main style={{maxWidth:720,margin:"40px auto",padding:16}}>
+    <h1 style={{fontSize:22,fontWeight:700}}>Job {id}</h1>
+    <ul style={{marginTop:12}}>{order.map(s=>(
+      <li key={s} style={{opacity: m?.status===s||order.indexOf(s)<=order.indexOf(m?.status as any)?1:.4}}>
+        {s}{m?.status===s?" (en cours)":""}
+      </li>))}{m?.status==="render"&&<li>done</li>}</ul>
+    {m?.status==="done"&&<a href={`/api/download/${m.id}/pdf`} style={{display:"inline-block",marginTop:16}}>Télécharger</a>}
+  </main>);
 }

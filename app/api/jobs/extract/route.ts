@@ -1,26 +1,13 @@
-
-export const dynamic = 'force-dynamic'
-export const maxDuration = 60
-
-import { NextResponse } from 'next/server'
-import { updateStepStatus, addJobLog, saveProcessingData, addJobOutput } from '@/lib/status'
-
-export async function POST(req: Request) {
-  try {
-    const { id } = await req.json()
-    if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
-    await updateStepStatus(id, 'extract', 'RUNNING')
-    await addJobLog(id, 'info', 'Extraction started')
-    const url = await saveProcessingData(id, 'extract', 'Texte extrait (démo)', 'raw.txt')
-    await addJobOutput(id, 'rawText', url)
-    await updateStepStatus(id, 'extract', 'COMPLETED')
-
-    try {
-      const nextURL = new URL('/api/jobs/normalize', req.url)
-      await fetch(nextURL.toString(), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id }), cache: 'no-store' })
-    } catch {}
-    return NextResponse.json({ ok: true })
-  } catch (e:any) {
-    return NextResponse.json({ error: e?.message || 'extract failed' }, { status: 500 })
-  }
+import { NextResponse } from "next/server";
+import { ensureManifest, readManifest, writeManifest, JobManifest } from "@/lib/manifest";
+export const maxDuration=60; export const runtime="nodejs"; export const dynamic="force-dynamic";
+const BLOB_URL="https://blob.vercel-storage.com"; const auth=()=>({ Authorization:`Bearer ${process.env.BLOB_READ_WRITE_TOKEN!}` });
+export async function POST(req:Request){
+  const {id} = (await req.json()) as {id?:string};
+  if(!id) return NextResponse.json({error:"id manquant"},{status:400});
+  await ensureManifest(id,`jobs/${id}/input.pdf`);
+  const m=(await readManifest(id))!; const key=`jobs/${id}/extract.json`;
+  await fetch(`${BLOB_URL}/${key}`,{method:"PUT",headers:{...auth(),"Content-Type":"application/json"},body:JSON.stringify({pages:3,textBlocks:12})});
+  const next:JobManifest={...m,status:"extract",files:{...m.files,extract:key}}; await writeManifest(id,next);
+  return NextResponse.json({ok:true,id,file:key});
 }

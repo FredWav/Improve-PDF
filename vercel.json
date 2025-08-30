@@ -1,7 +1,4 @@
 {
-  "functions": {
-    "app/api/**": {
-      "maxDuration": 60
-    }
-  }
+  "installCommand": "npm install --no-audit --no-fund",
+  "buildCommand": "next build"
 }

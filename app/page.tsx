@@ -1,41 +1,23 @@
-
-'use client'
-import { useState } from 'react'
-
-export default function Page() {
-  const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState<string | null>(null)
-
-  const onChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setBusy(true)
-    setErr(null)
-    const fd = new FormData()
-    fd.append('file', file)
-    try {
-      const res = await fetch('/api/upload', { method: 'POST', body: fd })
-      const json = await res.json()
-      if (!res.ok) throw new Error(json?.error || 'Upload failed')
-      const id = json.id
-      // kick off processing
-      await fetch('/api/enqueue', { method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({ id }) })
-      window.location.href = `/ebook/${id}`
-    } catch (e:any) {
-      setErr(e.message)
-      setBusy(false)
-    }
-  }
-
+"use client";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+export default function Home() {
+  const [file, setFile] = useState<File | null>(null);
+  const [loading, setLoading] = useState(false);
+  const r = useRouter();
   return (
-    <main>
-      <h1 style={{fontSize:28, fontWeight:700, marginBottom:10}}>Improve PDF</h1>
-      <p style={{marginBottom:20}}>Charge un PDF, on le transforme en ebook enrichi (démo).</p>
-      <input type="file" accept=".pdf" onChange={onChange} disabled={busy} />
-      {busy && <p>Upload en cours…</p>}
-      {err && <p style={{color:'crimson'}}>{err}</p>}
-      <hr style={{margin:'24px 0'}}/>
-      <p><a href="/api/health" target="_blank">Vérifier /api/health</a></p>
+    <main style={{maxWidth:760,margin:"40px auto",padding:16}}>
+      <h1 style={{fontSize:28,fontWeight:800}}>Improve-PDF</h1>
+      <form onSubmit={async e=>{e.preventDefault(); if(!file) return; setLoading(true);
+        const fd=new FormData(); fd.append("file",file);
+        const up=await fetch("/api/upload",{method:"POST",body:fd}); const j=await up.json();
+        if(!j.id){ alert(j.error||"Upload échoué"); setLoading(false); return; }
+        await fetch("/api/enqueue",{method:"POST",body:JSON.stringify({id:j.id})});
+        r.push(`/ebook/${j.id}`);
+      }}>
+        <input type="file" accept="application/pdf" onChange={e=>setFile(e.target.files?.[0]||null)} />
+        <button disabled={!file||loading} style={{marginLeft:12}}>{loading?"Upload...":"Lancer"}</button>
+      </form>
     </main>
-  )
+  );
 }
