@@ -1,5 +1,8 @@
 import { put, del, list, type PutBlobResult } from '@vercel/blob'
 
+// Development mode storage
+const devStorage = new Map<string, string>()
+
 export interface SaveBlobOptions {
   key?: string
   prefix?: string
@@ -54,6 +57,16 @@ export async function saveBlob(
   if (isPlaceholder) {
     // Development mode: return mock blob result
     console.log('[DEV MODE] Using mock blob storage for key:', key)
+    
+    // Store file content in development storage for later retrieval
+    if (file instanceof File) {
+      const content = await file.text()
+      devStorage.set(key, content)
+    } else {
+      const content = await file.text()
+      devStorage.set(key, content)
+    }
+    
     const mockUrl = `https://mock-blob.dev/${key}`
     const size = file instanceof File ? file.size : (file as any).size ?? 0
     const uploadedAt = new Date().toISOString()
@@ -114,10 +127,36 @@ export async function getFile(pathOrUrl: string): Promise<Response> {
   if (isPlaceholder && pathOrUrl.includes('mock-blob.dev')) {
     // Development mode: return mock response
     console.log('[DEV MODE] Mock file fetch for:', pathOrUrl)
-    return new Response('Mock file content for development', {
-      status: 200,
-      headers: { 'content-type': 'text/plain' }
-    })
+    const key = pathOrUrl.replace('https://mock-blob.dev/', '')
+    const content = devStorage.get(key)
+    if (content) {
+      return new Response(content, {
+        status: 200,
+        headers: { 'content-type': 'application/json' }
+      })
+    } else {
+      return new Response('File not found in dev storage', {
+        status: 404,
+        headers: { 'content-type': 'text/plain' }
+      })
+    }
+  }
+
+  if (isPlaceholder && !pathOrUrl.startsWith('http')) {
+    // Development mode: direct key lookup
+    console.log('[DEV MODE] Direct key lookup for:', pathOrUrl)
+    const content = devStorage.get(pathOrUrl)
+    if (content) {
+      return new Response(content, {
+        status: 200,
+        headers: { 'content-type': 'application/json' }
+      })
+    } else {
+      return new Response('File not found in dev storage', {
+        status: 404,
+        headers: { 'content-type': 'text/plain' }
+      })
+    }
   }
 
   const isFull = /^https?:\/\//i.test(pathOrUrl)

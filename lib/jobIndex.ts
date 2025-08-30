@@ -118,3 +118,8 @@ export async function listJobs({
     hasMore: start + pageSize < total
   }
 }
+
+export async function getRecentJobs(): Promise<JobSummary[]> {
+  const result = await listJobs({ page: 1, pageSize: 10, sort: 'updatedAt', order: 'desc' })
+  return result.jobs
+}

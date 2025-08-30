@@ -104,6 +104,15 @@ export async function createJobStatus(
     metadata: {}
   }
   await saveJobStatus(status)
+  
+  // Add job to index for recent jobs list
+  try {
+    const { appendJobId } = await import('./jobIndex')
+    await appendJobId(id)
+  } catch (e) {
+    console.warn('Failed to add job to index:', e)
+  }
+  
   return status
 }
 
