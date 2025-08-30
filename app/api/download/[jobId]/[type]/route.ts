@@ -1,7 +1,3 @@
-export const dynamic = 'force-dynamic';
-
-export const maxDuration = 60;
-
 import { NextRequest, NextResponse } from 'next/server'
 import { loadJobStatus } from '@/lib/status'
 import { getFile } from '@/lib/blob'
@@ -17,11 +13,15 @@ const TYPE_MAP: Record<string, keyof import('@/lib/status').JobOutputs> = {
   pdf: 'pdf',
   epub: 'epub',
   md: 'md',
-  report: 'report'
+  report: 'report',
+  // 👇 nouveaux types optionnels pour inspection/QA
+  'images-manifest': 'imagesManifest',
+  'rewrite-map': 'rewriteMap',
+  toc: 'toc'
 }
 
 export async function GET(
-  req: NextRequest,
+  _req: NextRequest,
   { params }: { params: { jobId: string; type: string } }
 ) {
   const { jobId, type } = params
@@ -44,17 +44,10 @@ export async function GET(
       )
     }
 
-    // Récupère le fichier depuis Vercel Blob (ou autre backend)…
-    const upstream = await getFile(outputUrl)
-    if (!upstream.ok || !upstream.body) {
-      return NextResponse.json(
-        { error: `Upstream fetch failed (${upstream.status})` },
-        { status: 502 }
-      )
-    }
+    const res = await getFile(outputUrl)
+    const blob = await res.blob()
 
-    // Détermine content-type + nom du fichier (exactement comme ton code)
-    let contentType = upstream.headers.get('content-type') || 'application/octet-stream'
+    let contentType = res.headers.get('content-type') || 'application/octet-stream'
     let filename = `${jobId}-${type}`
 
     switch (type) {
@@ -62,8 +55,17 @@ export async function GET(
       case 'normalized-text':
       case 'rewritten-text':
       case 'md':
+      case 'rewrite-map':
+      case 'report':
+      case 'toc':
         contentType = 'text/markdown'
-        filename += '.md'
+        filename += type === 'report' ? '-report.md' : '.md'
+        if (type === 'rewrite-map') filename += '' // déjà .md ci-dessus
+        if (type === 'toc') filename = `${jobId}-toc.md`
+        break
+      case 'images-manifest':
+        contentType = 'application/json'
+        filename += '.json'
         break
       case 'rendered-html':
       case 'html':
@@ -83,28 +85,19 @@ export async function GET(
         contentType = 'application/epub+zip'
         filename += '.epub'
         break
-      case 'report':
-        contentType = 'text/markdown'
-        filename += '-report.md'
-        break
     }
 
-    // Option ?inline=1 pour affichage dans le navigateur si tu veux
-    const inline = req.nextUrl.searchParams.get('inline') === '1'
-
-    // On streame le corps directement (plus efficace que blob/arrayBuffer)
-    const headers = new Headers()
-    headers.set('Content-Type', contentType)
-    headers.set(
-      'Content-Disposition',
-      `${inline ? 'inline' : 'attachment'}; filename="${filename}"`
-    )
-    // On évite d'envoyer un content-length incorrect en proxy
-    headers.set('Cache-Control', 'no-store')
-
-    return new NextResponse(upstream.body, { headers })
+    return new NextResponse(blob, {
+      headers: {
+        'Content-Type': contentType,
+        'Content-Disposition': `attachment; filename="${filename}"`
+      }
+    })
   } catch (err) {
     console.error('Download error:', err)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    )
   }
 }
