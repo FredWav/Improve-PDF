@@ -14,7 +14,7 @@ export async function POST(req: Request) {
 
     if (ct.includes('application/json')) {
       body = await req.json()
-    } else if (ct.includes('application/x-www-form-urlencoded') || ct.includes('multipart/form-data')) {
+    } else if (ct.includes('multipart/form-data') || ct.includes('application/x-www-form-urlencoded')) {
       const form = await req.formData()
       body = Object.fromEntries(form as any)
     } else {
@@ -29,29 +29,28 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Missing file key/url' }, { status: 400 })
     }
 
-    // 1) Crée le job (écrit le manifest)
+    // 1) Manifest
     const id = generateJobId()
     const status = await createJobStatus(id, filename, fileKey)
 
-    // 2) Ajoute un log localement puis resauve (pas de relecture immédiate)
+    // 2) Log local puis save (pas de relecture)
     status.logs.push({
       timestamp: new Date().toISOString(),
       level: 'info',
       message: `Job enqueued with file: ${fileKey}`
     })
-    try { await saveJobStatus(status) } catch { /* manifest déjà créé, on ignore */ }
+    try { await saveJobStatus(status) } catch {}
 
-    // 3) Kickoff pipeline -> /api/jobs/extract
+    // 3) Kickoff extract (non bloquant)
     try {
       const kickoffURL = new URL('/api/jobs/extract', req.url)
-      // on ne dépend pas de la réponse; l’étape /extract doit renvoyer vite (202/200)
       await fetch(kickoffURL.toString(), {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ id }),
         cache: 'no-store',
       })
-    } catch { /* si ça rate, le job restera en file, pas de 500 */ }
+    } catch {}
 
     return NextResponse.json({ id }, { status: 200 })
   } catch (err: any) {
