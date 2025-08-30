@@ -41,80 +41,60 @@ export function UploadZone({ onUploaded, className = '', disabled = false }: Upl
     if (f) handleFile(f)
   }
 
-  const onDragOver = (e: React.DragEvent) => {
-    e.preventDefault()
-    if (effectiveDisabled) return
-    setDrag(true)
-  }
-
-  const onDragLeave = () => {
-    if (effectiveDisabled) return
-    setDrag(false)
-  }
-
   return (
-    <div
-      onDragOver={onDragOver}
-      onDragLeave={onDragLeave}
-      onDrop={onDrop}
-      className={[
-        // carte verre dépoli
-        'relative rounded-2xl border bg-white/70 backdrop-blur-sm',
-        'border-slate-200 shadow-sm ring-1 ring-black/[0.02]',
-        'transition-all duration-200',
-        drag ? 'border-blue-400 ring-blue-200' : 'hover:shadow-md',
-        effectiveDisabled ? 'opacity-60 pointer-events-none' : 'cursor-pointer',
-        'px-8 py-12 text-center',
-        className
-      ].join(' ')}
-      onClick={() => {
-        if (!effectiveDisabled) document.getElementById('file-input-zone')?.click()
-      }}
-      role="button"
-      aria-label={t('actions.upload')}
-      aria-disabled={effectiveDisabled}
-    >
-      <input
-        id="file-input-zone"
-        type="file"
-        hidden
-        disabled={effectiveDisabled}
-        onChange={e => {
-          const f = e.target.files?.[0]
-          if (f) handleFile(f)
-        }}
-        accept=".pdf"
-      />
+    <div className={className}>
+      <div
+        onDragOver={e => { e.preventDefault(); if (!effectiveDisabled) setDrag(true) }}
+        onDragLeave={() => { if (!effectiveDisabled) setDrag(false) }}
+        onDrop={onDrop}
+        onClick={() => { if (!effectiveDisabled) document.getElementById('file-input-zone')?.click() }}
+        className={[
+          'group grid place-items-center h-48 w-full rounded-xl border-2 border-dashed bg-white',
+          'transition-all duration-200',
+          drag ? 'border-blue-400 bg-blue-50/60' : 'border-slate-300 hover:border-slate-400',
+          effectiveDisabled ? 'opacity-60 pointer-events-none' : 'cursor-pointer'
+        ].join(' ')}
+        role="button"
+        aria-disabled={effectiveDisabled}
+      >
+        <input
+          id="file-input-zone"
+          type="file"
+          hidden
+          disabled={effectiveDisabled}
+          onChange={e => {
+            const f = e.target.files?.[0]
+            if (f) handleFile(f)
+          }}
+          accept=".pdf"
+        />
 
-      {/* Icône Upload en SVG (pas de lib externe) */}
-      <div className="mx-auto mb-4 w-14 h-14 rounded-full bg-gradient-to-br from-blue-50 to-indigo-50 flex items-center justify-center ring-1 ring-slate-200">
-        <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden className="opacity-90">
-          <path d="M12 16V7m0 0l-3.5 3.5M12 7l3.5 3.5M5 16.5a4.5 4.5 0 01.2-1.4 4.5 4.5 0 014.3-3.1h.5"
-                stroke="currentColor" strokeWidth="1.6" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
-          <path d="M16 12a4 4 0 113.5 6H7.5A3.5 3.5 0 014 14.5 3.5 3.5 0 017.5 11" 
-                stroke="currentColor" strokeWidth="1.6" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
-        </svg>
-      </div>
-
-      <h3 className="text-base font-semibold text-slate-800">
-        {t('upload.dropHere') || 'Glissez-déposez votre PDF ici'}
-      </h3>
-      <p className="mt-1 text-sm text-slate-500">
-        {t('actions.selectFile') || 'Ou cliquez pour sélectionner'}
-      </p>
-
-      <div className="mt-4 inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600">
-        <span>PDF uniquement</span>
-        <span className="h-1 w-1 rounded-full bg-slate-300" />
-        <span>Max. 50 Mo</span>
+        <div className="text-center">
+          <div className="mx-auto mb-3 w-12 h-12 rounded-full bg-slate-50 ring-1 ring-slate-200 grid place-items-center">
+            {/* cloud icon */}
+            <svg width="24" height="24" viewBox="0 0 24 24" className="opacity-80">
+              <path d="M7 18h10a4 4 0 0 0 0-8 5 5 0 0 0-9.6-1.6A3.5 3.5 0 0 0 7 18Z" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M12 12v6m0 0l-2.5-2.5M12 18l2.5-2.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </div>
+          <div className="text-[15px] font-semibold text-slate-800">
+            {t('upload.dropHere') || 'Glissez-déposez votre fichier ici'}
+          </div>
+          <div className="mt-1 text-sm text-slate-500">
+            {t('actions.selectFile') || 'Cliquer pour sélectionner'}
+          </div>
+          <div className="mt-3 text-[11px] text-slate-400">
+            PDF uniquement<span className="mx-1">•</span>Max. 50 Mo
+          </div>
+        </div>
       </div>
 
       {loading && (
-        <div className="mt-6 text-sm text-slate-600 animate-pulse">
+        <div className="mt-3 text-sm text-slate-600 animate-pulse">
           {t('upload.inProgress') || 'Téléversement en cours…'}
         </div>
       )}
-      {error && <div className="mt-6 text-sm text-red-600">{error}</div>}
+      {error && <div className="mt-3 text-sm text-red-600">{error}</div>}
     </div>
   )
 }
