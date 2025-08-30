@@ -1,118 +1,41 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { updateStepStatus, addJobLog, saveProcessingData } from '../../../../lib/status'
-import { getText } from '../../../../lib/blob'
+export const dynamic = 'force-dynamic';
 
-export async function POST(request: NextRequest) {
+import { NextResponse } from 'next/server'
+import {
+  updateStepStatus,
+  addJobLog,
+  saveProcessingData,
+  addJobOutput,
+} from '@/lib/status'
+
+export async function POST(req: Request) {
   try {
-    const { jobId, inputUrl } = await request.json()
+    const { id } = await req.json()
+    if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
 
-    if (!jobId || !inputUrl) {
-      return NextResponse.json(
-        { error: 'Job ID and input URL are required' },
-        { status: 400 }
-      )
-    }
+    await updateStepStatus(id, 'images', 'RUNNING', 'Début images')
+    await addJobLog(id, 'info', 'Génération/placement images (stub)')
 
-    await addJobLog(jobId, 'info', `Starting image generation`)
+    // stub: on dépose juste un petit artefact texte
+    const note = `# IMAGES\nDate: ${new Date().toISOString()}\n\n(Aucune image générée dans le stub)`
+    const url = await saveProcessingData(id, 'images', note, 'images.txt')
+    await addJobOutput(id, 'report', url)
 
+    await updateStepStatus(id, 'images', 'COMPLETED', 'Images terminées')
+
+    // next: render
     try {
-      // Get the improved text
-      const improvedText = await getText(inputUrl)
-
-      // TODO: Implement actual image generation
-      // - Analyze text for concepts (1 image per 800-1200 words)
-      // - Try OpenAI Images first, then Pexels, then Unsplash
-      // - Track licensing information
-      
-      // Simulate image processing
-      await new Promise(resolve => setTimeout(resolve, 2000))
-      
-      // Mock image generation
-      const wordCount = improvedText.split(/\s+/).length
-      const imageCount = Math.max(1, Math.floor(wordCount / 1000))
-      
-      const mockImages = Array.from({ length: imageCount }, (_, i) => ({
-        id: `img-${i + 1}`,
-        url: `https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=800`, // Placeholder
-        alt: `Illustration ${i + 1}`,
-        caption: `Figure ${i + 1}: Conceptual illustration`,
-        source: 'unsplash',
-        license: 'Unsplash License',
-        author: 'Sample Author',
-        authorUrl: 'https://unsplash.com/@author'
-      }))
-
-      // Create enhanced text with image placeholders
-      const textWithImages = improvedText + '\n\n' + mockImages.map(img => 
-        `![${img.alt}](${img.url})\n*${img.caption}*\n`
-      ).join('\n')
-
-      // Save enhanced text with images
-      const outputUrl = await saveProcessingData(jobId, 'images', textWithImages, 'with-images.md')
-
-      // Save licensing information
-      const licensingInfo = {
-        images: mockImages,
-        totalImages: mockImages.length,
-        sources: {
-          openai: 0,
-          pexels: 0,
-          unsplash: mockImages.length
-        },
-        attribution: mockImages.map(img => ({
-          url: img.url,
-          author: img.author,
-          source: img.source,
-          license: img.license
-        }))
-      }
-
-      await saveProcessingData(jobId, 'images', JSON.stringify(licensingInfo, null, 2), 'licensing.json')
-
-      // Update step status to completed
-      await updateStepStatus(jobId, 'images', 'COMPLETED', `Image generation completed (${mockImages.length} images added)`)
-
-      // Start final step - rendering
-      await updateStepStatus(jobId, 'render', 'RUNNING', 'Starting final rendering')
-
-      // Trigger render job
-      try {
-        await fetch(`${request.nextUrl.origin}/api/jobs/render`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            jobId,
-            inputUrl: outputUrl
-          })
-        })
-      } catch (error) {
-        console.error('Failed to trigger render job:', error)
-        await updateStepStatus(jobId, 'render', 'FAILED', `Failed to start render: ${error}`)
-      }
-
-      return NextResponse.json({
-        success: true,
-        message: 'Image generation completed',
-        outputUrl,
-        images: mockImages,
-        licensing: licensingInfo
+      const nextURL = new URL('/api/jobs/render', req.url)
+      await fetch(nextURL.toString(), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id }),
+        cache: 'no-store',
       })
-    } catch (error) {
-      await updateStepStatus(jobId, 'images', 'FAILED', `Image generation failed: ${error}`)
-      await addJobLog(jobId, 'error', `Image generation failed: ${error}`)
-      
-      return NextResponse.json(
-        { error: 'Image generation failed' },
-        { status: 500 }
-      )
-    }
-  } catch (error) {
-    console.error('Images job error:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    } catch {}
+
+    return NextResponse.json({ ok: true }, { status: 200 })
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message || 'images failed' }, { status: 500 })
   }
 }
