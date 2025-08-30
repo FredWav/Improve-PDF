@@ -1,4 +1,4 @@
-import { HomePageClient } from '@/components/HomePageClient'
+import HomePageClient from '@/components/HomePageClient'
 
 export default function Home() {
   return <HomePageClient />
