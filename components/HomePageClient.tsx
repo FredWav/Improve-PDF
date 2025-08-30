@@ -6,7 +6,8 @@ import { UploadZone } from '@/components/UploadZone'
 import { JobsPanel } from '@/components/JobsPanel'
 import { t } from '@/lib/i18n'
 
-export default function HomePageClient() {
+// >>> Export NOMMÉ + export par défaut à la fin
+export function HomePageClient() {
   const [submitting, setSubmitting] = useState(false)
   const [enqueueError, setEnqueueError] = useState<string | null>(null)
 
@@ -18,11 +19,12 @@ export default function HomePageClient() {
           Improve PDF
         </h1>
         <p className="mt-2 text-sm text-slate-600">
-          Interface personnelle&nbsp;: chaque étape t’explique ce qu’elle fait. Ouvre un job pour voir les détails narratifs en direct.
+          Interface personnelle&nbsp;: chaque étape t’explique ce qu’elle fait.
+          Ouvre un job pour voir les détails narratifs en direct.
         </p>
       </div>
 
-      {/* Carte upload (verre dépoli, propre) */}
+      {/* Carte upload */}
       <div className="rounded-2xl border border-slate-200 bg-white/80 backdrop-blur-sm shadow-sm ring-1 ring-black/[0.02] p-6 sm:p-8 mb-10">
         <div className="mb-4">
           <h2 className="text-lg font-semibold text-slate-800">
@@ -33,7 +35,6 @@ export default function HomePageClient() {
         <UploadZone
           disabled={submitting}
           onUploaded={async (data: any) => {
-            // data attendu depuis /api/upload : { key, filename, ... }
             try {
               setSubmitting(true)
               setEnqueueError(null)
@@ -49,9 +50,6 @@ export default function HomePageClient() {
                 const j = await res.json().catch(() => ({}))
                 throw new Error(j?.error || `Enqueue failed (${res.status})`)
               }
-              // Option : rediriger vers la page du job si renvoyée par l’API
-              // const { id } = await res.json()
-              // if (id) router.push(`/ebook/${id}`)
             } catch (e: any) {
               setEnqueueError(e?.message ?? 'Erreur lors de la mise en file')
             } finally {
@@ -81,3 +79,6 @@ export default function HomePageClient() {
     </div>
   )
 }
+
+// >>> Export par défaut pour couvrir les deux styles d'import
+export default HomePageClient
