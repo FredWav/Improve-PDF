@@ -12,10 +12,7 @@ export async function GET() {
         const res = await fn()
         jobs = Array.isArray(res) ? res : (res?.jobs ?? [])
       }
-    } catch {
-      // lib/jobIndex peut ne pas exister encore → OK
-      jobs = []
-    }
+    } catch { jobs = [] }
     return NextResponse.json({ jobs }, { status: 200 })
   } catch {
     return NextResponse.json({ jobs: [] }, { status: 200 })
