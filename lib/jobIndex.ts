@@ -1,4 +1,4 @@
-import { uploadJSON, getJSON } from './blob'
+import { uploadJSON, getJSON, uploadText } from './blob'
 import { loadJobStatus } from './status'
 
 const INDEX_PATH = 'jobs/index.json'
@@ -12,12 +12,28 @@ async function loadIndex(): Promise<string[]> {
   }
 }
 
-export async function appendJobId(id: string) {
-  const ids = await loadIndex()
-  if (!ids.includes(id)) {
+// Optimistic concurrency with retry & jitter
+export async function appendJobId(id: string, maxRetries = 6) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const ids = await loadIndex()
+    if (ids.includes(id)) return
     ids.push(id)
-    // allowOverwrite so repeated writes to index work
-    await uploadJSON(ids, { key: INDEX_PATH, addTimestamp: false, allowOverwrite: true })
+    try {
+      await uploadJSON(ids, {
+        key: INDEX_PATH,
+        addTimestamp: false,
+        allowOverwrite: true
+      })
+      return
+    } catch (e) {
+      if (attempt === maxRetries) {
+        console.error('Failed to append job id after retries', id, e)
+        throw e
+      }
+      await new Promise(res =>
+        setTimeout(res, 40 * (attempt + 1) + Math.random() * 50)
+      )
+    }
   }
 }
 
@@ -71,11 +87,17 @@ export interface ListJobsResult {
   hasMore: boolean
 }
 
-export async function listJobs({ page = 1, pageSize = 50, sort = 'updatedAt', order = 'desc' }: ListJobsParams = {}): Promise<ListJobsResult> {
+export async function listJobs({
+  page = 1,
+  pageSize = 50,
+  sort = 'updatedAt',
+  order = 'desc'
+}: ListJobsParams = {}): Promise<ListJobsResult> {
   if (page < 1) page = 1
   if (pageSize < 1) pageSize = 1
-  const all = await getAllJobsSummaries()
+  if (pageSize > 200) pageSize = 200
 
+  const all = await getAllJobsSummaries()
   const factor = order === 'asc' ? 1 : -1
   const sorted = [...all].sort((a, b) => {
     const av = (a[sort] || '')
@@ -86,14 +108,13 @@ export async function listJobs({ page = 1, pageSize = 50, sort = 'updatedAt', or
 
   const total = sorted.length
   const start = (page - 1) * pageSize
-  const end = start + pageSize
-  const slice = sorted.slice(start, end)
+  const slice = sorted.slice(start, start + pageSize)
 
   return {
     jobs: slice,
     total,
     page,
     pageSize,
-    hasMore: end < total
+    hasMore: start + pageSize < total
   }
 }
