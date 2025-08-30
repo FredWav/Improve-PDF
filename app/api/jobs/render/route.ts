@@ -1,4 +1,6 @@
 /* app/api/jobs/render/route.ts */
+import chromium from '@sparticuz/chromium'
+import puppeteer from 'puppeteer-core'
 export const runtime = 'nodejs'
 
 import { NextResponse } from 'next/server'
