@@ -1,4 +1,5 @@
 Improve-PDF
+
 Une application complète d’amélioration de PDF construite avec Next.js, qui transforme des PDF en ebooks illustrés professionnels grâce à l’IA, tout en préservant le sens du contenu original.
 
 🎯 Fonctionnalités
