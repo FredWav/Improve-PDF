@@ -1,35 +1,17 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { loadJobStatus } from '../../../../lib/status'
+export const dynamic = 'force-dynamic';
+
+import { NextResponse } from 'next/server'
+import { loadJobStatus } from '@/lib/status'
 
 export async function GET(
-  request: NextRequest,
+  _req: Request,
   { params }: { params: { id: string } }
 ) {
   try {
-    const { id } = params
-
-    if (!id) {
-      return NextResponse.json(
-        { error: 'Job ID is required' },
-        { status: 400 }
-      )
-    }
-
-    const status = await loadJobStatus(id)
-
-    if (!status) {
-      return NextResponse.json(
-        { error: 'Job not found' },
-        { status: 404 }
-      )
-    }
-
-    return NextResponse.json(status)
-  } catch (error) {
-    console.error('Error fetching job status:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    const job = await loadJobStatus(params.id)
+    if (!job) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    return NextResponse.json(job, { status: 200 })
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message || 'Error' }, { status: 500 })
   }
 }
