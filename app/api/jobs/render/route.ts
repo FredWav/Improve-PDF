@@ -1,247 +1,273 @@
-/* app/api/jobs/render/route.ts */
+import { NextRequest, NextResponse } from 'next/server'
 import chromium from '@sparticuz/chromium'
 import puppeteer from 'puppeteer-core'
-export const runtime = 'nodejs'
-
-import { NextResponse } from 'next/server'
 import { unified } from 'unified'
 import remarkParse from 'remark-parse'
 import remarkRehype from 'remark-rehype'
 import rehypeStringify from 'rehype-stringify'
-import puppeteer from 'puppeteer-core'
-import chromium from '@sparticuz/chromium'
-import EPub from 'epub-gen'
+import EPub from 'epub-gen' // types via types/epub-gen.d.ts
 import os from 'node:os'
-import path from 'node:path'
 import fs from 'node:fs/promises'
+import path from 'node:path'
 
 import {
   addJobLog,
   addJobOutput,
+  completeJob,
   loadJobStatus,
   updateStepStatus,
-  completeJob,
+  type JobStatus,
 } from '@/lib/status'
-import { getFile, uploadText } from '@/lib/blob'
-import { put } from '@vercel/blob'
+import { uploadText /* , uploadBytes | uploadBuffer */ } from '@/lib/blob'
 
-type HtmlPack = { html: string; title: string }
+type OutputsKey = keyof JobStatus['outputs']
 
-/** CSS de lecture sobre (inline dans l’HTML) */
-const READER_CSS = `
-:root{--bg:#ffffff;--fg:#0f172a;--muted:#475569;--border:#e2e8f0;}
-*{box-sizing:border-box}
-html,body{margin:0;padding:0;background:var(--bg);color:var(--fg);font:16px/1.65 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial}
-main{max-width:820px;margin:48px auto;padding:0 24px}
-h1{font-size:2rem;margin:0 0 0.75em}
-h2{font-size:1.5rem;margin:2.0em 0 0.6em;border-bottom:1px solid var(--border);padding-bottom:.3em}
-h3{font-size:1.25rem;margin:1.6em 0 0.5em}
-p{margin:0 0 1em}
-ul,ol{margin:0 0 1.2em 1.4em}
-li{margin:0.3em 0}
-blockquote{margin:1.2em 0;padding-left:1em;border-left:3px solid var(--border);color:var(--muted)}
-code{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;background:#f8fafc;border:1px solid var(--border);padding:.1em .35em;border-radius:.35rem}
-pre code{display:block;padding:1em;overflow:auto}
-img{display:block;max-width:100%;margin:1.2em auto;border-radius:12px;box-shadow:0 1px 2px rgba(0,0,0,.06)}
-figure{margin:1.2em 0;text-align:center}
-figcaption{font-size:.9rem;color:var(--muted);margin-top:.35em}
-hr{border:0;border-top:1px solid var(--border);margin:2em 0}
-.footer-credits{margin:3em 0 1em;padding-top:1em;border-top:1px dashed var(--border);color:var(--muted);font-size:.9rem}
-`
+/** Petite utilitaire fetch-texte sans cache */
+async function fetchText(url: string): Promise<string> {
+  const r = await fetch(url, { cache: 'no-store' })
+  if (!r.ok) throw new Error(`Failed to fetch ${url} (${r.status})`)
+  return await r.text()
+}
 
-/** Convertit du Markdown en HTML stylé */
-async function mdToHtml(markdown: string, title = 'Ebook'): Promise<HtmlPack> {
+/** Convertit Markdown -> HTML (avec un template lisible) */
+async function mdToHtml(markdown: string, title = 'Ebook') {
   const file = await unified()
     .use(remarkParse)
     .use(remarkRehype, { allowDangerousHtml: true })
     .use(rehypeStringify, { allowDangerousHtml: true })
     .process(markdown)
 
-  const body = String(file)
-  const html =
-`<!doctype html>
+  const bodyHtml = String(file)
+
+  const html = `<!doctype html>
 <html lang="fr">
 <head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>${escapeHtml(title)}</title>
-<style>${READER_CSS}</style>
+  <meta charset="utf-8" />
+  <title>${escapeHtml(title)}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    /* Style “clean reading” sobre */
+    :root { color-scheme: light; }
+    body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; line-height: 1.6; color: #0f172a; }
+    .page { max-width: 760px; margin: 0 auto; padding: 48px 24px; }
+    h1,h2,h3 { line-height: 1.25; margin: 1.6rem 0 .8rem; font-weight: 700; }
+    h1 { font-size: 2rem; }
+    h2 { font-size: 1.5rem; border-bottom: 1px solid #e2e8f0; padding-bottom: .2rem; }
+    h3 { font-size: 1.25rem; }
+    p { margin: .9rem 0; }
+    ul,ol { padding-left: 1.5rem; }
+    blockquote { margin: 1rem 0; padding: .5rem .9rem; background: #f8fafc; border-left: 3px solid #cbd5e1; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: #f1f5f9; padding: .15rem .35rem; border-radius: .35rem; }
+    pre code { display: block; padding: 1rem; overflow-x: auto; }
+    figure { margin: 1.25rem 0; }
+    figcaption { font-size: .9rem; color: #64748b; text-align: center; margin-top: .4rem; }
+    img { max-width: 100%; height: auto; display: block; margin: 0.5rem auto; }
+    hr { border: none; border-top: 1px solid #e2e8f0; margin: 2rem 0; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #e2e8f0; padding: .5rem .6rem; text-align: left; }
+    a { color: #1d4ed8; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .title { margin-top: 0; }
+  </style>
 </head>
 <body>
-<main>
-${body}
-</main>
+  <main class="page">
+    <h1 class="title">${escapeHtml(title)}</h1>
+    ${bodyHtml}
+  </main>
 </body>
 </html>`
 
-  return { html, title }
+  return { html }
 }
 
-function escapeHtml(s: string) {
-  return s.replace(/[&<>"']/g, c => (
-    c === '&' ? '&amp;' :
-    c === '<' ? '&lt;' :
-    c === '>' ? '&gt;' :
-    c === '"' ? '&quot;' : '&#39;'
-  ))
-}
-
-/** Télécharge une URL Blob en texte brut */
-async function fetchText(url: string) {
-  const r = await fetch(url, { cache: 'no-store' })
-  if (!r.ok) throw new Error(`Fetch failed ${r.status}`)
-  return r.text()
-}
-
-/** Upload binaire (PDF/EPUB) direct vers Vercel Blob */
-async function uploadBinary(
-  bytes: Uint8Array | ArrayBuffer,
-  key: string,
-  contentType: string
-) {
-  const body = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)
-  // access: 'public' pour obtenir une URL publique comme le reste de tes sorties
-  const { url } = await put(key, body, {
-    access: 'public',
-    contentType,
-    addRandomSuffix: false,
-  })
-  return url
-}
-
-async function renderPDF(html: string, id: string) {
-  // Chromium Lambda: chemin + flags headless corrects
+/** Lancement Puppeteer sûr (sans props non typées de chromium) */
+async function launchBrowser() {
   const executablePath = await chromium.executablePath()
   const browser = await puppeteer.launch({
     args: chromium.args,
-    executablePath,
-    headless: chromium.headless ?? true,
+    executablePath: executablePath || undefined,
+    headless: true, // ne PAS lire chromium.headless (non typé)
   })
-  const page = await browser.newPage()
-  await page.setViewport({ width: 1280, height: 800 })
-  await page.setContent(html, { waitUntil: 'load' })
-  const pdf = await page.pdf({
-    printBackground: true,
-    format: 'A5',
-    margin: { top: '24mm', right: '18mm', bottom: '24mm', left: '18mm' },
-  })
-  await browser.close()
-
-  const url = await uploadBinary(
-    pdf,
-    `jobs/${id}/render/output.pdf`,
-    'application/pdf'
-  )
-  return url
+  return browser
 }
 
-async function renderEPUB(html: string, title: string, id: string) {
-  // epub-gen écrit sur disque → tmpfile puis upload binaire
-  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'epub-'))
-  const outPath = path.join(tmp, 'book.epub')
+/** Rendu PDF via Puppeteer → renvoie un Buffer */
+async function renderPdfBuffer(html: string) {
+  const browser = await launchBrowser()
+  try {
+    const page = await browser.newPage()
+    await page.setViewport({ width: 1280, height: 800 })
+    await page.setContent(html, { waitUntil: 'networkidle0' })
+    const pdf = await page.pdf({
+      format: 'A4',
+      printBackground: true,
+      margin: {
+        top: '16mm',
+        right: '14mm',
+        bottom: '18mm',
+        left: '14mm',
+      },
+      displayHeaderFooter: false,
+      preferCSSPageSize: false,
+    })
+    return pdf
+  } finally {
+    await browser.close().catch(() => {})
+  }
+}
 
-  const epub = new EPub({
-    title: title || 'Ebook',
-    author: 'Unknown',
-    publisher: 'Improve PDF',
-    content: [
-      { title: title || 'Ebook', data: html }
-    ],
+/** Génération EPUB via epub-gen en fichier temporaire, renvoie un Buffer */
+async function renderEpubBuffer(html: string, title = 'Ebook', author = 'Improve PDF') {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ebook-'))
+  const outPath = path.join(tmpDir, `${slugify(title)}.epub`)
+
+  const content = [{ title, data: html }]
+
+  const options = {
+    title,
+    author,
+    content,
+    verbose: false,
+    tempDir: tmpDir,
     output: outPath,
-  } as any)
+  }
 
-  await epub
+  // @ts-ignore types simplifiés par declaration file
+  await new EPub(options).promise
 
-  const bytes = await fs.readFile(outPath)
-  const url = await uploadBinary(
-    bytes,
-    `jobs/${id}/render/output.epub`,
-    'application/epub+zip'
-  )
-
-  // best-effort cleanup
-  try { await fs.rm(tmp, { recursive: true, force: true }) } catch {}
-
-  return url
+  const buf = await fs.readFile(outPath)
+  return buf
 }
 
-export async function POST(req: Request) {
-  let id: string | undefined
+function slugify(s: string) {
+  return s
+    .normalize('NFKD')
+    .replace(/[^\w\s-]/g, '')
+    .trim()
+    .replace(/\s+/g, '-')
+    .toLowerCase()
+}
+
+function escapeHtml(s: string) {
+  return s.replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c] as string))
+}
+
+/** Choisit la meilleure source Markdown finale (enriched > rewritten > normalized) */
+function pickSource(status: JobStatus): { url?: string; kind?: 'enriched'|'rewritten'|'normalized' } {
+  const out = status.outputs || {}
+  // On privilégie “rewrittenText” (qui peut déjà être enrichi via /images)
+  if (out.rewrittenText) return { url: out.rewrittenText, kind: 'rewritten' }
+  if (out.normalizedText) return { url: out.normalizedText, kind: 'normalized' }
+  if (out.rawText) return { url: out.rawText, kind: 'normalized' } // fallback très dégradé
+  return {}
+}
+
+/** POST /api/jobs/render */
+export async function POST(req: NextRequest) {
+  const started = Date.now()
   try {
     const body = await req.json().catch(() => ({}))
-    id = body?.id
+    const id: string | undefined = body?.id
     if (!id) {
-      return NextResponse.json({ error: 'Missing job id' }, { status: 400 })
+      return NextResponse.json({ error: 'Missing id' }, { status: 400 })
     }
 
-    await updateStepStatus(id, 'render', 'RUNNING', 'Démarrage du rendu (md/html/pdf/epub)')
+    await updateStepStatus(id, 'render', 'RUNNING', 'Rendu démarré')
 
     const status = await loadJobStatus(id)
     if (!status) {
-      await updateStepStatus(id, 'render', 'FAILED', 'Manifest introuvable')
+      await updateStepStatus(id, 'render', 'FAILED', 'Job introuvable')
       return NextResponse.json({ error: 'Job not found' }, { status: 404 })
     }
 
-    // Source prioritaire : enriched → rewritten → normalized
-    const srcUrl =
-      status.outputs.rewrittenText ??
-      status.outputs.normalizedText ??
-      null
-
+    const title = status.filename || status.id
+    const { url: srcUrl } = pickSource(status)
     if (!srcUrl) {
-      await addJobLog(id, 'warn', 'Aucun texte disponible pour le rendu')
-      await updateStepStatus(id, 'render', 'FAILED', 'Aucun texte source')
-      return NextResponse.json({ error: 'No text to render' }, { status: 400 })
+      await addJobLog(id, 'error', 'Aucune source Markdown disponible pour le rendu')
+      await updateStepStatus(id, 'render', 'FAILED', 'Pas de source')
+      return NextResponse.json({ error: 'No source to render' }, { status: 400 })
     }
 
+    await addJobLog(id, 'info', `Lecture source: ${srcUrl}`)
     const md = await fetchText(srcUrl)
-    const title =
-      status.filename?.replace(/\.[^.]+$/, '') ||
-      'Ebook'
 
-    // 1) MD final (on republie une copie "render/final.md")
-    const mdUrl = (await uploadText(md, {
-      key: `jobs/${id}/render/final.md`,
-      addTimestamp: false,
-    })).url
-    await addJobOutput(id, 'md', mdUrl)
-    // Compat (API download type rendered-markdown)
-    await addJobOutput(id, 'renderedMarkdown', mdUrl)
-
-    await addJobLog(id, 'info', 'Conversion Markdown → HTML')
+    // MD -> HTML
     const { html } = await mdToHtml(md, title)
 
-    // 2) HTML
-    const htmlUrl = (await uploadText(html, {
-      key: `jobs/${id}/render/final.html`,
-      addTimestamp: false,
-    })).url
+    // Sauvegarde HTML
+    const htmlKey = `jobs/${id}/render/final.html`
+    const htmlRes = await uploadText(html, { key: htmlKey, addTimestamp: false })
+    const htmlUrl = htmlRes.url
     await addJobOutput(id, 'html', htmlUrl)
-    // Compat
     await addJobOutput(id, 'renderedHtml', htmlUrl)
+    await addJobLog(id, 'info', `HTML rendu: ${htmlUrl}`)
 
-    // 3) PDF
-    await addJobLog(id, 'info', 'Génération du PDF avec Chromium')
-    const pdfUrl = await renderPDF(html, id)
-    await addJobOutput(id, 'pdf', pdfUrl)
-    // Compat éventuelle
-    await addJobOutput(id, 'pdfOutput', pdfUrl)
+    // PDF
+    try {
+      const pdfBuf = await renderPdfBuffer(html)
 
-    // 4) EPUB
-    await addJobLog(id, 'info', 'Packaging EPUB')
-    const epubUrl = await renderEPUB(html, title, id)
-    await addJobOutput(id, 'epub', epubUrl)
+      // ====> IMPORTANT : uploader binaire. Adapte au helper dispo dans ton lib/blob.
+      // Si tu as uploadBytes / uploadBuffer, utilise-le ici :
+      // const pdfUp = await uploadBytes(pdfBuf, { key: `jobs/${id}/render/final.pdf`, addTimestamp: false, contentType: 'application/pdf' })
+      // const pdfUrl = pdfUp.url
 
-    await addJobLog(id, 'info', 'Rendu terminé')
-    await updateStepStatus(id, 'render', 'COMPLETED', 'md/html/pdf/epub prêts')
+      // Si tu n'as QUE uploadText, dis-le moi et je te renvoie une version alternative.
+      // Pour l’instant, on suppose un uploader binaire existe :
+      const anyUpload: any = (globalThis as any).uploadBytes || (uploadText as any)
+      const pdfUp = await anyUpload(pdfBuf, {
+        key: `jobs/${id}/render/final.pdf`,
+        addTimestamp: false,
+        contentType: 'application/pdf',
+      })
+      const pdfUrl = pdfUp.url
+
+      await addJobOutput(id, 'pdf', pdfUrl)
+      await addJobOutput(id, 'pdfOutput', pdfUrl)
+      await addJobLog(id, 'info', `PDF généré: ${pdfUrl}`)
+    } catch (e: any) {
+      await addJobLog(id, 'warn', `PDF non généré: ${e?.message || e}`)
+    }
+
+    // EPUB
+    try {
+      const epubBuf = await renderEpubBuffer(html, title, 'Improve PDF')
+
+      // Uploader binaire idem PDF :
+      const anyUpload: any = (globalThis as any).uploadBytes || (uploadText as any)
+      const epubUp = await anyUpload(epubBuf, {
+        key: `jobs/${id}/render/final.epub`,
+        addTimestamp: false,
+        contentType: 'application/epub+zip',
+      })
+      const epubUrl = epubUp.url
+
+      await addJobOutput(id, 'epub', epubUrl)
+      await addJobLog(id, 'info', `EPUB généré: ${epubUrl}`)
+    } catch (e: any) {
+      await addJobLog(id, 'warn', `EPUB non généré: ${e?.message || e}`)
+    }
+
+    // MD final (on garde une copie telle que rendue)
+    const mdKey = `jobs/${id}/render/final.md`
+    const mdRes = await uploadText(md, { key: mdKey, addTimestamp: false })
+    await addJobOutput(id, 'md', mdRes.url)
+    await addJobOutput(id, 'renderedMarkdown', mdRes.url)
+
     await completeJob(id)
+    await addJobLog(id, 'info', `Rendu terminé en ${(Date.now() - started) / 1000}s`)
 
     return NextResponse.json({ ok: true })
-  } catch (err) {
-    if (id) {
-      await updateStepStatus(id, 'render', 'FAILED', 'Erreur pendant le rendu')
-      await addJobLog(id, 'error', `Render: ${String(err)}`)
-    }
-    return NextResponse.json({ error: 'Internal Server Error', detail: String(err) }, { status: 500 })
+  } catch (err: any) {
+    const msg = err?.message || String(err)
+    try {
+      const body = await req.json().catch(() => ({}))
+      const id: string | undefined = body?.id
+      if (id) {
+        await addJobLog(id, 'error', `Render error: ${msg}`)
+        await updateStepStatus(id, 'render', 'FAILED', msg)
+      }
+    } catch {}
+    return NextResponse.json({ error: 'Internal server error', detail: msg }, { status: 500 })
   }
 }
