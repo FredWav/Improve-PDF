@@ -1,4 +1,4 @@
-import type { JobStatus } from '@/lib/status'
+import type { JobStatus, StepStatus } from '@/lib/status'
 
 export interface DerivedJobInfo {
   totalSteps: number
@@ -13,7 +13,11 @@ export interface DerivedJobInfo {
   awaitingWork: boolean
 }
 
-const STEP_LABELS: Record<string, string> = {
+/** Ordre déterministe des étapes, typé en littéraux */
+const ORDER = ['extract', 'normalize', 'rewrite', 'images', 'render'] as const
+type StepKey = typeof ORDER[number]
+
+const STEP_LABELS: Record<StepKey, string> = {
   extract: 'Extraction du texte',
   normalize: 'Normalisation / nettoyage',
   rewrite: 'Réécriture assistée IA',
@@ -21,15 +25,15 @@ const STEP_LABELS: Record<string, string> = {
   render: 'Rendu final (HTML / Markdown / PDF / EPUB)'
 }
 
-const STEP_RUNNING_PHRASES: Record<string, string> = {
+const STEP_RUNNING_PHRASES: Record<StepKey, string> = {
   extract: 'Je lis le PDF et j’en extrais le texte brut…',
   normalize: 'Je nettoie et structure le texte extrait…',
   rewrite: 'Je reformule et améliore le contenu…',
   images: 'Je prépare ou génère les images nécessaires…',
-  render: 'Je assemble tout et produis les sorties finales…'
+  render: 'J’assemble tout et produis les sorties finales…'
 }
 
-const STEP_PENDING_PHRASES: Record<string, string> = {
+const STEP_PENDING_PHRASES: Record<StepKey, string> = {
   extract: 'Prêt à commencer l’extraction du texte.',
   normalize: 'En attente: normalisation après extraction.',
   rewrite: 'En attente: réécriture après normalisation.',
@@ -37,7 +41,7 @@ const STEP_PENDING_PHRASES: Record<string, string> = {
   render: 'En attente: rendu final après toutes les étapes.'
 }
 
-const STEP_COMPLETED_PHRASES: Record<string, string> = {
+const STEP_COMPLETED_PHRASES: Record<StepKey, string> = {
   extract: 'Extraction terminée.',
   normalize: 'Texte normalisé.',
   rewrite: 'Réécriture terminée.',
@@ -45,7 +49,7 @@ const STEP_COMPLETED_PHRASES: Record<string, string> = {
   render: 'Rendu terminé.'
 }
 
-const STEP_FAILED_PHRASES: Record<string, string> = {
+const STEP_FAILED_PHRASES: Record<StepKey, string> = {
   extract: 'Échec pendant l’extraction.',
   normalize: 'Échec pendant la normalisation.',
   rewrite: 'Échec pendant la réécriture.',
@@ -53,33 +57,36 @@ const STEP_FAILED_PHRASES: Record<string, string> = {
   render: 'Échec pendant le rendu final.'
 }
 
-function pickActiveStep(steps: JobStatus['steps']): string | undefined {
-  // Ordre déterministe
-  const order = ['extract', 'normalize', 'rewrite', 'images', 'render']
-  for (const k of order) {
-    if (steps[k] === 'RUNNING') return k
+function pickActiveStep(steps: JobStatus['steps']): StepKey | undefined {
+  // Vue typée pour indexer sans erreur TS
+  const stepsMap = steps as Record<StepKey, StepStatus>
+
+  for (const k of ORDER) {
+    if (stepsMap[k] === 'RUNNING') return k
   }
-  for (const k of order) {
-    if (steps[k] === 'PENDING') return k
+  for (const k of ORDER) {
+    if (stepsMap[k] === 'PENDING') return k
   }
   return undefined
 }
 
 export function deriveJobInfo(job: JobStatus): DerivedJobInfo {
-  const keys = Object.keys(job.steps)
+  const keys = Object.keys(job.steps) as StepKey[]
   const totalSteps = keys.length
+
   let completed = 0
   let failed = false
   for (const k of keys) {
-    const st = job.steps[k as keyof JobStatus['steps']]
+    const st = job.steps[k]
     if (st === 'COMPLETED') completed++
     if (st === 'FAILED') failed = true
   }
-  const active = pickActiveStep(job.steps)
-  const activeStatus = active ? job.steps[active as keyof JobStatus['steps']] : undefined
+
+  const active = pickActiveStep(job.steps) // StepKey | undefined
+  const activeStatus: StepStatus | undefined = active ? job.steps[active] : undefined
   const percent = Math.round((completed / totalSteps) * 100)
 
-  // Dernier log informatif
+  // Dernier log informatif (non-error)
   const lastLog = job.logs.slice().reverse().find(l => l.level !== 'error')
 
   let narrativeCore = ''
@@ -111,13 +118,11 @@ export function deriveJobInfo(job: JobStatus): DerivedJobInfo {
     }
   }
 
-  const shortLabel = failed
-    ? 'Échec'
-    : completed === totalSteps
-      ? 'Terminé'
-      : active
-        ? STEP_LABELS[active] || active
-        : 'En cours'
+  const shortLabel =
+    failed ? 'Échec'
+    : completed === totalSteps ? 'Terminé'
+    : active ? (STEP_LABELS[active] || active)
+    : 'En cours'
 
   const narrative = [
     narrativeCore,
