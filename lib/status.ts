@@ -14,6 +14,10 @@ export interface JobOutputs {
   pdf?: string
   epub?: string
   report?: string
+  // 👇 ajouts non-breaking pour images & QA
+  imagesManifest?: string
+  rewriteMap?: string
+  toc?: string
 }
 
 export interface JobStatus {
@@ -46,9 +50,7 @@ export interface JobStatus {
 
 const MANIFEST_PATH = (id: string) => `jobs/${id}/manifest.json`
 
-// ⬇⬇⬇ SEULE MODIF IMPORTANTE : plus de retries + délai plus long ⬇⬇⬇
-// Avant: 6 tentatives, base 30ms (~630ms total max) → trop court pour l’éventuelle latence Blob.
-// Maintenant: 20 tentatives, base 120ms → ~ (1+..+20)*120ms = 25 200ms max (25,2s) => robuste en prod.
+// Backoff plus robuste pour la latence Blob
 const RETRY_ATTEMPTS = 20
 const RETRY_BASE_DELAY_MS = 120
 
@@ -68,7 +70,6 @@ async function getJobOrThrow(id: string): Promise<JobStatus> {
   for (let attempt = 0; attempt < RETRY_ATTEMPTS; attempt++) {
     const job = await loadJobStatusOnce(id)
     if (job) return job
-    // progressive backoff (linéaire)
     await sleep(RETRY_BASE_DELAY_MS * (attempt + 1))
   }
   throw new Error(`Job ${id} not found after ${RETRY_ATTEMPTS} attempts`)
