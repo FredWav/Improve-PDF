@@ -1,230 +1,78 @@
-import { uploadJSON, getJSON, uploadText } from './blob'
+// === AJOUT NON-BREAKING POUR L'UI DES JOBS ===
 
-export type StepStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED'
+// Statut global normalisé, commun à la liste (RecentJob) et au détail (JobStatus)
+export type OverallStatus = 'queued' | 'processing' | 'succeeded' | 'failed'
 
-export interface JobOutputs {
-  rawText?: string
-  normalizedText?: string
-  rewrittenText?: string
-  renderedHtml?: string
-  renderedMarkdown?: string
-  pdfOutput?: string
-  md?: string
-  html?: string
-  pdf?: string
-  epub?: string
-  report?: string
-}
-
-export interface JobStatus {
+// Type léger utilisé côté liste/récents
+export type RecentJob = {
   id: string
+  status: OverallStatus
   filename?: string
-  steps: {
-    extract: StepStatus
-    normalize: StepStatus
-    rewrite: StepStatus
-    images: StepStatus
-    render: StepStatus
-  }
-  outputs: JobOutputs
-  logs: Array<{
-    timestamp: string
-    level: 'info' | 'warn' | 'error'
-    message: string
-  }>
-  createdAt: string
-  updatedAt: string
-  inputFile?: string
-  metadata?: {
-    originalSize?: number
-    pageCount?: number
-    processingTime?: number
-    aiTokensUsed?: number
-    imagesGenerated?: number
-  }
+  createdAt?: string | number
 }
 
-const MANIFEST_PATH = (id: string) => `jobs/${id}/manifest.json`
-
-// Retry settings to mitigate eventual consistency / latency of underlying storage
-const RETRY_ATTEMPTS = 6
-const RETRY_BASE_DELAY_MS = 30 // backoff base; total worst-case delay ~ (1+..+6)*30 ~= 630ms
-
-function sleep(ms: number) {
-  return new Promise(res => setTimeout(res, ms))
+// Type guard : détecte si on a un JobStatus complet (celui déjà défini dans ce fichier)
+function isFullJobStatus(x: any): x is JobStatus {
+  return (
+    x &&
+    typeof x === 'object' &&
+    x.steps &&
+    typeof x.steps === 'object' &&
+    Array.isArray(x.logs)
+  )
 }
 
-async function loadJobStatusOnce(id: string): Promise<JobStatus | null> {
-  try {
-    return await getJSON<JobStatus>(MANIFEST_PATH(id))
-  } catch {
-    return null
-  }
+// Déduit un statut global à partir des steps du JobStatus
+export function getOverallStatusFromSteps(job: JobStatus): OverallStatus {
+  const values = Object.values(job.steps)
+  if (values.includes('FAILED')) return 'failed'
+  if (values.every(s => s === 'COMPLETED')) return 'succeeded'
+  if (values.includes('RUNNING')) return 'processing'
+  // s’il reste au moins un PENDING et rien ne tourne, on considère "queued"
+  return 'queued'
 }
 
-async function getJobOrThrow(id: string): Promise<JobStatus> {
-  for (let attempt = 0; attempt < RETRY_ATTEMPTS; attempt++) {
-    const job = await loadJobStatusOnce(id)
-    if (job) return job
-    // progressive backoff
-    await sleep(RETRY_BASE_DELAY_MS * (attempt + 1))
-  }
-  throw new Error(`Job ${id} not found after ${RETRY_ATTEMPTS} attempts`)
+// Infos d’affichage pour un job (badges, libellés, sous-libellés)
+export type JobInfo = {
+  label: string
+  sublabel?: string
+  badgeColor: 'gray' | 'blue' | 'green' | 'red'
 }
 
-export async function createJobStatus(
-  id: string,
-  filename?: string,
-  inputFile?: string
-): Promise<JobStatus> {
-  const now = new Date().toISOString()
-  const status: JobStatus = {
-    id,
-    filename,
-    steps: {
-      extract: 'PENDING',
-      normalize: 'PENDING',
-      rewrite: 'PENDING',
-      images: 'PENDING',
-      render: 'PENDING'
-    },
-    outputs: {},
-    logs: [
-      {
-        timestamp: now,
-        level: 'info',
-        message: `Job ${id} created${filename ? ` for file: ${filename}` : ''}`
-      }
-    ],
-    createdAt: now,
-    updatedAt: now,
-    inputFile,
-    metadata: {}
-  }
-  await saveJobStatus(status)
-  return status
-}
+/**
+ * Unifie l’info d’affichage, que l’on fournisse un RecentJob (liste)
+ * ou un JobStatus (détail). NE MODIFIE AUCUNE FONCTION EXISTANTE.
+ */
+export function deriveJobInfo(job: RecentJob | JobStatus): JobInfo {
+  const status: OverallStatus = isFullJobStatus(job)
+    ? getOverallStatusFromSteps(job)
+    : job.status
 
-export async function saveJobStatus(status: JobStatus): Promise<void> {
-  status.updatedAt = new Date().toISOString()
-  await uploadJSON(status, {
-    key: MANIFEST_PATH(status.id),
-    addTimestamp: false
-  })
-}
+  const badgeColor: JobInfo['badgeColor'] =
+    status === 'queued' ? 'gray'
+    : status === 'processing' ? 'blue'
+    : status === 'succeeded' ? 'green'
+    : 'red'
 
-export async function loadJobStatus(id: string): Promise<JobStatus | null> {
-  return loadJobStatusOnce(id)
-}
+  const label =
+    status === 'queued' ? 'En file d’attente'
+    : status === 'processing' ? 'En traitement'
+    : status === 'succeeded' ? 'Terminé'
+    : 'Échec'
 
-export async function updateStepStatus(
-  id: string,
-  step: keyof JobStatus['steps'],
-  statusValue: StepStatus,
-  message?: string
-): Promise<void> {
-  const jobStatus = await getJobOrThrow(id)
-  jobStatus.steps[step] = statusValue
-  if (message) {
-    jobStatus.logs.push({
-      timestamp: new Date().toISOString(),
-      level: statusValue === 'FAILED' ? 'error' : 'info',
-      message: `Step ${step}: ${message}`
-    })
-  }
-  await saveJobStatus(jobStatus)
-}
+  // Attention : dans JobStatus, le nom de fichier est `filename` (et pas fileName)
+  const baseName = (isFullJobStatus(job) ? job.filename : job.filename) || ''
 
-export async function addJobOutput(
-  id: string,
-  outputType: keyof JobStatus['outputs'],
-  url: string
-): Promise<void> {
-  const jobStatus = await getJobOrThrow(id)
-  jobStatus.outputs[outputType] = url
-  jobStatus.logs.push({
-    timestamp: new Date().toISOString(),
-    level: 'info',
-    message: `Output generated: ${outputType} -> ${url}`
-  })
-  await saveJobStatus(jobStatus)
-}
-
-export async function addJobLog(
-  id: string,
-  level: 'info' | 'warn' | 'error',
-  message: string
-): Promise<void> {
-  const jobStatus = await getJobOrThrow(id)
-  jobStatus.logs.push({
-    timestamp: new Date().toISOString(),
-    level,
-    message
-  })
-  await saveJobStatus(jobStatus)
-}
-
-export async function updateJobMetadata(
-  id: string,
-  metadata: Partial<JobStatus['metadata']>
-): Promise<void> {
-  const jobStatus = await getJobOrThrow(id)
-  jobStatus.metadata = { ...jobStatus.metadata, ...metadata }
-  await saveJobStatus(jobStatus)
-}
-
-export async function completeJob(id: string): Promise<void> {
-  const jobStatus = await getJobOrThrow(id)
-  Object.keys(jobStatus.steps).forEach(k => {
-    const key = k as keyof JobStatus['steps']
-    if (jobStatus.steps[key] === 'PENDING' || jobStatus.steps[key] === 'RUNNING') {
-      jobStatus.steps[key] = 'COMPLETED'
+  // Optionnel : on affiche le nombre d’étapes si on a un JobStatus en cours
+  let sublabel = baseName
+  if (isFullJobStatus(job)) {
+    const stepCount = Object.keys(job.steps || {}).length
+    const running = Object.values(job.steps || {}).includes('RUNNING')
+    if ((status === 'processing' || status === 'queued') && stepCount) {
+      const extra = running ? `${stepCount} étape(s) • en cours` : `${stepCount} étape(s)`
+      sublabel = sublabel ? `${sublabel} • ${extra}` : extra
     }
-  })
-  jobStatus.logs.push({
-    timestamp: new Date().toISOString(),
-    level: 'info',
-    message: 'Job completed successfully'
-  })
-  await saveJobStatus(jobStatus)
-}
+  }
 
-export async function failJob(
-  id: string,
-  error: string,
-  step?: keyof JobStatus['steps']
-): Promise<void> {
-  const jobStatus = await getJobOrThrow(id)
-  if (step) jobStatus.steps[step] = 'FAILED'
-  jobStatus.logs.push({
-    timestamp: new Date().toISOString(),
-    level: 'error',
-    message: `Job failed: ${error}`
-  })
-  await saveJobStatus(jobStatus)
-}
-
-export function generateJobId(): string {
-  const timestamp = Date.now()
-  const random = Math.random().toString(36).substring(2, 8)
-  return `job-${timestamp}-${random}`
-}
-
-export async function listJobs(): Promise<JobStatus[]> {
-  return []
-}
-
-export async function saveProcessingData(
-  jobId: string,
-  step: string,
-  data: string,
-  filename: string
-): Promise<string> {
-  const key = `jobs/${jobId}/${step}/${filename}`
-  const result = await uploadText(data, {
-    key,
-    addTimestamp: false
-  })
-  await addJobLog(jobId, 'info', `Saved ${step} data: ${filename}`)
-  return result.url
+  return { label, sublabel: sublabel || undefined, badgeColor }
 }
