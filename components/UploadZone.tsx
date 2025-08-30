@@ -1,6 +1,5 @@
 'use client'
 import React, { useCallback, useState } from 'react'
-import { t } from '@/lib/i18n'
 
 interface UploadZoneProps {
   onUploaded: (data: any) => void | Promise<void>
@@ -44,18 +43,20 @@ export function UploadZone({ onUploaded, className = '', disabled = false }: Upl
   return (
     <div className={className}>
       <div
-        onDragOver={e => { e.preventDefault(); if (!effectiveDisabled) setDrag(true) }}
+        onDragOver={(e) => { e.preventDefault(); if (!effectiveDisabled) setDrag(true) }}
         onDragLeave={() => { if (!effectiveDisabled) setDrag(false) }}
         onDrop={onDrop}
         onClick={() => { if (!effectiveDisabled) document.getElementById('file-input-zone')?.click() }}
-        className={[
-          'group grid place-items-center h-48 w-full rounded-xl border-2 border-dashed bg-white',
-          'transition-all duration-200',
-          drag ? 'border-blue-400 bg-blue-50/60' : 'border-slate-300 hover:border-slate-400',
-          effectiveDisabled ? 'opacity-60 pointer-events-none' : 'cursor-pointer'
-        ].join(' ')}
+        onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && !effectiveDisabled) document.getElementById('file-input-zone')?.click() }}
+        tabIndex={0}
         role="button"
         aria-disabled={effectiveDisabled}
+        className={[
+          'relative grid place-items-center h-56 w-full rounded-2xl border-2 border-dashed bg-white/80 backdrop-blur-sm',
+          'transition-all duration-200 ease-out ring-1 ring-black/5 shadow-sm',
+          drag ? 'border-blue-400 bg-blue-50/60 ring-blue-200 cursor-copy' : 'border-slate-300 hover:border-slate-400 hover:bg-slate-50 cursor-pointer',
+          effectiveDisabled ? 'opacity-60 pointer-events-none' : ''
+        ].join(' ')}
       >
         <input
           id="file-input-zone"
@@ -70,30 +71,41 @@ export function UploadZone({ onUploaded, className = '', disabled = false }: Upl
         />
 
         <div className="text-center">
-          <div className="mx-auto mb-3 w-12 h-12 rounded-full bg-slate-50 ring-1 ring-slate-200 grid place-items-center">
-            {/* cloud icon */}
-            <svg width="24" height="24" viewBox="0 0 24 24" className="opacity-80">
+          <div className="mx-auto mb-4 w-14 h-14 rounded-full bg-gradient-to-br from-blue-50 to-indigo-50 flex items-center justify-center ring-1 ring-slate-200">
+            <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden className="opacity-90">
               <path d="M7 18h10a4 4 0 0 0 0-8 5 5 0 0 0-9.6-1.6A3.5 3.5 0 0 0 7 18Z" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
               <path d="M12 12v6m0 0l-2.5-2.5M12 18l2.5-2.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           </div>
+
           <div className="text-[15px] font-semibold text-slate-800">
-            {t('upload.dropHere') || 'Glissez-déposez votre fichier ici'}
+            Glissez-déposez votre fichier ici
           </div>
-          <div className="mt-1 text-sm text-slate-500">
-            {t('actions.selectFile') || 'Cliquer pour sélectionner'}
-          </div>
+          <div className="mt-1 text-sm text-slate-500">ou</div>
+
+          <button
+            type="button"
+            className="mt-3 btn btn-primary"
+            onClick={(e) => {
+              e.stopPropagation()
+              document.getElementById('file-input-zone')?.click()
+            }}
+          >
+            Choisir un fichier
+          </button>
+
           <div className="mt-3 text-[11px] text-slate-400">
             PDF uniquement<span className="mx-1">•</span>Max. 50 Mo
           </div>
         </div>
+
+        <div className={[
+          'absolute inset-0 rounded-2xl pointer-events-none transition-opacity duration-200',
+          drag ? 'opacity-100 ring-2 ring-blue-400/60' : 'opacity-0'
+        ].join(' ')} />
       </div>
 
-      {loading && (
-        <div className="mt-3 text-sm text-slate-600 animate-pulse">
-          {t('upload.inProgress') || 'Téléversement en cours…'}
-        </div>
-      )}
+      {loading && <div className="mt-3 text-sm text-slate-600 animate-pulse">Téléversement en cours…</div>}
       {error && <div className="mt-3 text-sm text-red-600">{error}</div>}
     </div>
   )
