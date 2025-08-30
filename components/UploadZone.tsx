@@ -3,7 +3,7 @@ import React, { useCallback, useState } from 'react'
 import { t } from '@/lib/i18n'
 
 interface UploadZoneProps {
-  onUploaded: (data: any) => void
+  onUploaded: (data: any) => void | Promise<void>
   className?: string
   disabled?: boolean
 }
@@ -25,7 +25,7 @@ export function UploadZone({ onUploaded, className = '', disabled = false }: Upl
       const res = await fetch('/api/upload', { method: 'POST', body: form })
       const json = await res.json()
       if (!res.ok) throw new Error(json?.error || 'Upload failed')
-      onUploaded(json)
+      await onUploaded(json)
     } catch (e: any) {
       setError(e?.message || 'Erreur')
     } finally {
@@ -37,7 +37,8 @@ export function UploadZone({ onUploaded, className = '', disabled = false }: Upl
     e.preventDefault()
     if (effectiveDisabled) return
     setDrag(false)
-    if (e.dataTransfer.files?.[0]) handleFile(e.dataTransfer.files[0])
+    const f = e.dataTransfer.files?.[0]
+    if (f) handleFile(f)
   }
 
   const onDragOver = (e: React.DragEvent) => {
@@ -56,10 +57,16 @@ export function UploadZone({ onUploaded, className = '', disabled = false }: Upl
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
-      className={`border-2 border-dashed rounded-lg px-6 py-10 text-center transition
-        ${drag ? 'border-blue-500 bg-blue-50' : 'border-slate-300 bg-white hover:border-slate-400'}
-        ${effectiveDisabled ? 'opacity-60 pointer-events-none' : 'cursor-pointer'}
-        ${className}`}
+      className={[
+        // carte verre dépoli
+        'relative rounded-2xl border bg-white/70 backdrop-blur-sm',
+        'border-slate-200 shadow-sm ring-1 ring-black/[0.02]',
+        'transition-all duration-200',
+        drag ? 'border-blue-400 ring-blue-200' : 'hover:shadow-md',
+        effectiveDisabled ? 'opacity-60 pointer-events-none' : 'cursor-pointer',
+        'px-8 py-12 text-center',
+        className
+      ].join(' ')}
       onClick={() => {
         if (!effectiveDisabled) document.getElementById('file-input-zone')?.click()
       }}
@@ -78,14 +85,36 @@ export function UploadZone({ onUploaded, className = '', disabled = false }: Upl
         }}
         accept=".pdf"
       />
-      <div className="font-medium text-slate-700">
-        {t('upload.dropHere')}
+
+      {/* Icône Upload en SVG (pas de lib externe) */}
+      <div className="mx-auto mb-4 w-14 h-14 rounded-full bg-gradient-to-br from-blue-50 to-indigo-50 flex items-center justify-center ring-1 ring-slate-200">
+        <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden className="opacity-90">
+          <path d="M12 16V7m0 0l-3.5 3.5M12 7l3.5 3.5M5 16.5a4.5 4.5 0 01.2-1.4 4.5 4.5 0 014.3-3.1h.5"
+                stroke="currentColor" strokeWidth="1.6" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+          <path d="M16 12a4 4 0 113.5 6H7.5A3.5 3.5 0 014 14.5 3.5 3.5 0 017.5 11" 
+                stroke="currentColor" strokeWidth="1.6" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
       </div>
-      <div className="mt-2 text-sm text-slate-500">
-        {t('actions.selectFile')}
+
+      <h3 className="text-base font-semibold text-slate-800">
+        {t('upload.dropHere') || 'Glissez-déposez votre PDF ici'}
+      </h3>
+      <p className="mt-1 text-sm text-slate-500">
+        {t('actions.selectFile') || 'Ou cliquez pour sélectionner'}
+      </p>
+
+      <div className="mt-4 inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600">
+        <span>PDF uniquement</span>
+        <span className="h-1 w-1 rounded-full bg-slate-300" />
+        <span>Max. 50 Mo</span>
       </div>
-      {loading && <div className="mt-4 text-sm text-slate-600 animate-pulse">{t('upload.inProgress')}</div>}
-      {error && <div className="mt-4 text-sm text-red-600">{error}</div>}
+
+      {loading && (
+        <div className="mt-6 text-sm text-slate-600 animate-pulse">
+          {t('upload.inProgress') || 'Téléversement en cours…'}
+        </div>
+      )}
+      {error && <div className="mt-6 text-sm text-red-600">{error}</div>}
     </div>
   )
 }
