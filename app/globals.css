@@ -8,7 +8,7 @@ html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; 
 /* Sélection */
 ::selection { background-color: rgba(99,102,241,0.2); }
 
-/* Focus visible joli (clavier) */
+/* Focus visible (clavier) */
 :root { --ring: 0 0 0 3px rgba(59,130,246,.35); }
 :focus-visible { outline: none; box-shadow: var(--ring); border-radius: .75rem; }
 
@@ -21,7 +21,7 @@ html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; 
 /* Pas de flash bleu au tap mobile */
 * { -webkit-tap-highlight-color: transparent; }
 
-/* Utilitaires globaux (pratiques) */
+/* Utilitaires globaux */
 .container-page { @apply mx-auto max-w-6xl px-4 sm:px-6 lg:px-8; }
 .card { @apply rounded-2xl border border-slate-200 bg-white/80 backdrop-blur-sm shadow-sm ring-1 ring-black/5; }
 .btn { @apply inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-medium transition; }
