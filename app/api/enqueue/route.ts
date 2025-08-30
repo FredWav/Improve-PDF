@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { NextResponse } from 'next/server'
 import {
   generateJobId,
@@ -12,25 +14,15 @@ export async function POST(req: Request) {
 
     if (ct.includes('application/json')) {
       body = await req.json()
-    } else if (ct.includes('application/x-www-form-urlencoded')) {
-      const form = await req.formData()
-      body = Object.fromEntries(form as any)
-    } else if (ct.includes('multipart/form-data')) {
+    } else if (ct.includes('application/x-www-form-urlencoded') || ct.includes('multipart/form-data')) {
       const form = await req.formData()
       body = Object.fromEntries(form as any)
     } else {
       try { body = await req.json() } catch { body = {} }
     }
 
-    // Tolérant sur les champs possibles
     const fileKey =
-      body.fileKey ||
-      body.inputFile ||
-      body.key ||
-      body.url ||
-      body.pathname ||
-      body.path
-
+      body.fileKey || body.inputFile || body.key || body.url || body.pathname || body.path
     const filename = body.filename || body.name || 'document.pdf'
 
     if (!fileKey) {
@@ -41,19 +33,25 @@ export async function POST(req: Request) {
     const id = generateJobId()
     const status = await createJobStatus(id, filename, fileKey)
 
-    // 2) ➜ NE PAS recharger : on push le log localement puis on resauve
+    // 2) Ajoute un log localement puis resauve (pas de relecture immédiate)
     status.logs.push({
       timestamp: new Date().toISOString(),
       level: 'info',
       message: `Job enqueued with file: ${fileKey}`
     })
+    try { await saveJobStatus(status) } catch { /* manifest déjà créé, on ignore */ }
 
-    // On essaye de sauver, mais on ne fait pas échouer l’appel si ça rate (évite un 500 inutile)
+    // 3) Kickoff pipeline -> /api/jobs/extract
     try {
-      await saveJobStatus(status)
-    } catch {
-      /* noop – le manifest est déjà créé, le log suivra plus tard si besoin */
-    }
+      const kickoffURL = new URL('/api/jobs/extract', req.url)
+      // on ne dépend pas de la réponse; l’étape /extract doit renvoyer vite (202/200)
+      await fetch(kickoffURL.toString(), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id }),
+        cache: 'no-store',
+      })
+    } catch { /* si ça rate, le job restera en file, pas de 500 */ }
 
     return NextResponse.json({ id }, { status: 200 })
   } catch (err: any) {
