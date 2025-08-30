@@ -62,23 +62,3 @@ export function deriveJobInfo(job: RecentJob | JobStatus): JobInfo {
 
   return { label, sublabel: sublabel || undefined, badgeColor }
 }
-
-/**
- * IMPORTANT : on force ici les exports nommés attendus par les routes API et les autres modules.
- * On ne supprime rien au-dessus, on rend juste l’API du module explicite.
- */
-export {
-  // valeur/fonctions existantes attendues par les imports
-  loadJobStatus,
-  createJobStatus,
-  saveJobStatus,
-  updateStepStatus,
-  addJobOutput,
-  addJobLog,
-  updateJobMetadata,
-  completeJob,
-  failJob,
-  listJobs,
-  saveProcessingData,
-  generateJobId
-}
