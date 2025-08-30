@@ -1,53 +1,53 @@
 'use client'
-import React, { useEffect, useState } from 'react'
-import { fetchJobs, JobInfo } from '@/lib/jobsClient'
-import { JobStatusBadge } from './JobStatusBadge'
-import { t } from '@/lib/i18n'
+import Link from 'next/link'
+import { useRecentJobs } from '@/hooks/useRecentJobs'
+import { deriveJobInfo } from '@/lib/ui/jobNarrative'
+import { ProgressBar } from '@/components/ProgressBar'
 
 export function JobsPanel() {
-  const [jobs, setJobs] = useState<JobInfo[]>([])
-  const [loading, setLoading] = useState(true)
+  const { jobs, error } = useRecentJobs()
 
-  async function load() {
-    try {
-      const data = await fetchJobs()
-      setJobs(data)
-    } finally {
-      setLoading(false)
-    }
+  if (error) {
+    return <div className="text-sm text-red-500">Erreur chargement jobs: {error}</div>
   }
 
-  useEffect(() => {
-    load()
-    const interval = setInterval(load, 4000)
-    return () => clearInterval(interval)
-  }, [])
-
-  if (loading) {
-    return (
-      <div className="text-sm text-slate-500">Chargement…</div>
-    )
-  }
-
-  if (jobs.length === 0) {
-    return (
-      <div className="text-sm text-slate-500">{t('job.none')}</div>
-    )
+  if (!jobs.length) {
+    return <div className="text-sm text-slate-500">Aucun job récent.</div>
   }
 
   return (
-    <ul className="divide-y divide-slate-200 border rounded-md bg-white">
-      {jobs.map(job => (
-        <li key={job.id} className="p-4 flex items-center justify-between gap-4">
-          <div className="min-w-0">
-            <div className="text-sm font-medium text-slate-800 truncate">
-              {job.filename || '(sans nom)'}
+    <div className="space-y-4">
+      {jobs.map(job => {
+        const info = deriveJobInfo(job)
+        return (
+          <div
+            key={job.id}
+            className="border rounded-md p-4 bg-white shadow-sm"
+          >
+            <div className="flex items-center justify-between mb-2">
+              <div className="font-medium text-sm truncate max-w-[60%]">
+                {job.filename || job.id}
+              </div>
+              <Link
+                href={`/ebook/${job.id}`}
+                className="text-xs text-blue-600 hover:underline shrink-0"
+              >
+                Ouvrir
+              </Link>
             </div>
-            <div className="text-[11px] text-slate-500 mt-1">{job.id}</div>
+            <div className="mb-2">
+              <ProgressBar value={info.percent} />
+            </div>
+            <p className="text-[11px] text-slate-600 line-clamp-2">
+              {info.narrative}
+            </p>
+            <div className="mt-1 text-[11px] text-slate-400">
+              {info.completedSteps}/{info.totalSteps} étapes
+              {info.failed && <span className="text-red-600 font-semibold ml-2">Échec</span>}
+            </div>
           </div>
-          <JobStatusBadge status={job.status} />
-        </li>
-      ))}
-    </ul>
+        )
+      })}
+    </div>
   )
 }
