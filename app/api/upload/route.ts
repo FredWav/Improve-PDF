@@ -1,50 +1,15 @@
-import { NextResponse } from 'next/server'
-import { saveBlob } from '@/lib/blob'
-
-export const runtime = 'nodejs'
-export const dynamic = 'force-dynamic'
-export const maxDuration = 60
-
-export async function POST(req: Request) {
-  try {
-    if (!process.env.BLOB_READ_WRITE_TOKEN) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error:
-            'Server missing BLOB_READ_WRITE_TOKEN. Configure a Vercel Blob store and set the token.'
-        },
-        { status: 500 }
-      )
-    }
-const form = await req.formData()
-    const file = form.get('file')
-    if (!(file instanceof File)) {
-      return NextResponse.json(
-        { ok: false, error: 'Missing file field named "file"' },
-        { status: 400 }
-      )
-    }
-
-    const uploaded = await saveBlob(file, {
-      prefix: 'uploads/',
-      filename: file.name,
-      addTimestamp: true
-    })
-
-    return NextResponse.json({
-      ok: true,
-      fileId: uploaded.pathname, // added to fix frontend expectation
-      url: uploaded.url,
-      pathname: uploaded.pathname,
-      size: uploaded.size,
-      uploadedAt: uploaded.uploadedAt
-    })
-  } catch (err: any) {
-    console.error('Upload error:', err)
-    return NextResponse.json(
-      { ok: false, error: err?.message || 'Upload failed' },
-      { status: 500 }
-    )
-  }
+import { NextResponse } from "next/server";
+import { ensureManifest } from "@/lib/manifest";
+const BLOB_URL="https://blob.vercel-storage.com";
+export const maxDuration=60; export const runtime="nodejs"; export const dynamic="force-dynamic";
+function auth(){ const t=process.env.BLOB_READ_WRITE_TOKEN; if(!t) throw new Error("Missing BLOB_READ_WRITE_TOKEN"); return { Authorization:`Bearer ${t}` }; }
+function newJobId(){ return `job-${Date.now()}-${Math.random().toString(36).slice(2,8)}`; }
+export async function POST(req:Request){
+  const form=await req.formData(); const file=form.get("file") as File|null;
+  if(!file) return NextResponse.json({error:"Aucun fichier reçu."},{status:400});
+  const id=newJobId(); const inputKey=`jobs/${id}/input.pdf`;
+  const buf=Buffer.from(await file.arrayBuffer());
+  const put=await fetch(`${BLOB_URL}/${inputKey}`,{method:"PUT",headers:{...auth(),"Content-Type":"application/pdf"},body:buf});
+  if(!put.ok) return NextResponse.json({error:"Upload vers Blob échoué."},{status:500});
+  await ensureManifest(id,inputKey); return NextResponse.json({id});
 }

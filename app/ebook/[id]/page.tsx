@@ -1,47 +1,26 @@
-'use client'
-
-import { useJob } from '@/hooks/useJob'
-import { JobVerboseStatus } from '@/components/JobVerboseStatus'
-import { useParams } from 'next/navigation'
-
-export default function JobPage() {
-  const { id } = useParams() as { id: string }
-  const { data, error, done, derived } = useJob(id, { interval: 1500 })
-
-  return (
-    <main className="max-w-4xl mx-auto px-6 py-10 space-y-10">
-      <header className="space-y-2">
-        <h1 className="text-2xl font-semibold text-slate-800">
-          Statut du traitement
-        </h1>
-        <p className="text-sm text-slate-500">
-          Suivi détaillé d’un document (interface verbeuse personnelle)
-        </p>
-      </header>
-
-      {error && (
-        <div className="p-3 rounded-md bg-red-50 border border-red-200 text-sm text-red-700">
-          Erreur de récupération du job: {error}
-        </div>
-      )}
-
-      {!data && !error && (
-        <div className="text-sm text-slate-500">Chargement…</div>
-      )}
-
-      {data && <JobVerboseStatus job={data} />}
-
-      {done && derived && !derived.failed && (
-        <div className="p-4 border rounded-md bg-emerald-50 border-emerald-200 text-emerald-700 text-sm">
-          Traitement entièrement terminé. Tu peux télécharger les sorties ou revenir à l’accueil.
-        </div>
-      )}
-
-      {derived?.failed && (
-        <div className="p-4 border rounded-md bg-red-50 border-red-200 text-red-700 text-sm">
-          Le job est en échec. Consulte les logs, corrige la cause puis relance.
-        </div>
-      )}
-    </main>
-  )
+"use client";
+import { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
+type M = { id:string; status:string; files:Record<string,string> };
+const order = ["queued","extract","normalize","rewrite","images","render"] as const;
+export default function Job(){
+  const { id } = useParams<{id:string}>(); const [m,setM]=useState<M|null>(null);
+  const [fired,setFired]=useState<Record<string,boolean>>({});
+  useEffect(()=>{ const t=setInterval(async()=>{ const r=await fetch(`/api/status/${id}`);
+    if(r.ok) setM(await r.json()); },1000); return()=>clearInterval(t); },[id]);
+  useEffect(()=>{ (async()=>{
+    if(!m) return; const i=order.indexOf(m.status as any); if(i>=0&&i<order.length){
+      const step=order[i]; if(!fired[step]){ setFired(p=>({...p,[step]:true}));
+        await fetch(`/api/jobs/${step}`,{method:"POST",body:JSON.stringify({id:m.id})});
+      }
+    }
+  })(); },[m,fired]);
+  return(<main style={{maxWidth:720,margin:"40px auto",padding:16}}>
+    <h1 style={{fontSize:22,fontWeight:700}}>Job {id}</h1>
+    <ul style={{marginTop:12}}>{order.map(s=>(
+      <li key={s} style={{opacity: m?.status===s||order.indexOf(s)<=order.indexOf(m?.status as any)?1:.4}}>
+        {s}{m?.status===s?" (en cours)":""}
+      </li>))}{m?.status==="render"&&<li>done</li>}</ul>
+    {m?.status==="done"&&<a href={`/api/download/${m.id}/pdf`} style={{display:"inline-block",marginTop:16}}>Télécharger</a>}
+  </main>);
 }

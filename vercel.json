@@ -1,24 +1,4 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "version": 2,
-  "functions": {
-    "api/**": {
-      "runtime": "@vercel/node@2.0.0",
-      "maxDuration": 60,
-      "memory": 1024
-    }
-  },
-  "images": {
-    "sizes": [640, 750, 828, 1080, 1200, 1920],
-    "remotePatterns": [
-      { "protocol": "https", "hostname": "images.unsplash.com" },
-      { "protocol": "https", "hostname": "plus.unsplash.com" },
-      { "protocol": "https", "hostname": "source.unsplash.com" },
-      { "protocol": "https", "hostname": "images.pexels.com" }
-    ]
-  },
-  "crons": [
-    { "path": "/api/status/reap", "schedule": "0 */6 * * *" }
-  ],
-  "installCommand": "npm install"
+  "installCommand": "npm install --no-audit --no-fund",
+  "buildCommand": "next build"
 }

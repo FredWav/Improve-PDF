@@ -1,38 +1,13 @@
-export const dynamic = 'force-dynamic';
-
-export const maxDuration = 60;
-
-import { NextResponse } from 'next/server'
-import {
-  updateStepStatus,
-  addJobLog,
-  saveProcessingData,
-  addJobOutput,
-  completeJob,
-} from '@/lib/status'
-
-export async function POST(req: Request) {
-  try {
-    const { id } = await req.json()
-    if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
-
-    await updateStepStatus(id, 'render', 'RUNNING', 'Début rendu final')
-    await addJobLog(id, 'info', 'Rendu HTML/Markdown (stub)')
-
-    const md = `# Document final (stub)\n\nGénéré le ${new Date().toISOString()}`
-    const html = `<!doctype html><meta charset="utf-8"><title>Final</title><h1>Document final (stub)</h1><p>Généré le ${new Date().toISOString()}</p>`
-
-    const mdUrl = await saveProcessingData(id, 'render', md, 'final.md')
-    const htmlUrl = await saveProcessingData(id, 'render', html, 'final.html')
-
-    await addJobOutput(id, 'md', mdUrl)
-    await addJobOutput(id, 'html', htmlUrl)
-
-    await updateStepStatus(id, 'render', 'COMPLETED', 'Rendu terminé')
-    await completeJob(id)
-
-    return NextResponse.json({ ok: true }, { status: 200 })
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message || 'render failed' }, { status: 500 })
-  }
+import { NextResponse } from "next/server";
+import { ensureManifest, readManifest, writeManifest, JobManifest } from "@/lib/manifest";
+export const maxDuration=60; export const runtime="nodejs"; export const dynamic="force-dynamic";
+const BLOB_URL="https://blob.vercel-storage.com"; const auth=()=>({ Authorization:`Bearer ${process.env.BLOB_READ_WRITE_TOKEN!}` });
+export async function POST(req:Request){
+  const {id} = (await req.json()) as {id?:string};
+  if(!id) return NextResponse.json({error:"id manquant"},{status:400});
+  await ensureManifest(id,`jobs/${id}/input.pdf`);
+  const m=(await readManifest(id))!; const key=`jobs/${id}/render.txt`;
+  await fetch(`${BLOB_URL}/${key}`,{method:"PUT",headers:{...auth(),"Content-Type":"text/plain"},body:"Ebook généré (démo)\n"});
+  const next:JobManifest={...m,status:"render",files:{...m.files,render:key}}; await writeManifest(id,next);
+  return NextResponse.json({ok:true,id,file:key});
 }

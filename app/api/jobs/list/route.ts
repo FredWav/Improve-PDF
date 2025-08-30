@@ -1,12 +1,19 @@
+
 import { NextResponse } from 'next/server'
-import { getAllJobsSummaries } from '@/lib/jobIndex'
+import { listPrefix, getJSON } from '@/lib/blob'
+
+export const dynamic = 'force-dynamic'
+export const maxDuration = 60
 
 export async function GET() {
   try {
-    const jobs = await getAllJobsSummaries()
-    return NextResponse.json(jobs)
-  } catch (e) {
-    console.error('Failed to list jobs:', e)
-    return NextResponse.json({ error: 'Failed to list jobs' }, { status: 500 })
+    const res = await listPrefix('jobs/')
+    const ids = Array.from(new Set(res.blobs
+      .map(b => b.pathname)
+      .map(p => (p.match(/^jobs\/([^\/]+)/)?.[1]))
+      .filter(Boolean)))
+    return NextResponse.json({ ids })
+  } catch (e:any) {
+    return NextResponse.json({ ids: [], error: e?.message }, { status: 200 })
   }
 }
