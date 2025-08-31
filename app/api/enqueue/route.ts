@@ -6,7 +6,24 @@ import {
   generateJobId,
   createJobStatus,
   saveJobStatus,
+  loadJobStatus,
 } from '@/lib/status'
+
+// Helper pour attendre que le blob soit disponible
+async function waitForJobToBeReady(id: string, maxAttempts = 5): Promise<boolean> {
+  for (let i = 0; i < maxAttempts; i++) {
+    const job = await loadJobStatus(id)
+    if (job) {
+      console.log(`Job ${id} is ready after ${i + 1} attempts`)
+      return true
+    }
+    const delay = 100 + (i * 50) // 100ms, 150ms, 200ms, etc.
+    console.log(`Job ${id} not ready yet, waiting ${delay}ms... (attempt ${i + 1}/${maxAttempts})`)
+    await new Promise(resolve => setTimeout(resolve, delay))
+  }
+  console.warn(`Job ${id} still not ready after ${maxAttempts} attempts`)
+  return false
+}
 
 export async function POST(req: Request) {
   try {
@@ -54,13 +71,24 @@ export async function POST(req: Request) {
       
       await saveJobStatus(status)
       console.log(`Job status saved successfully for ${id}`)
+
+      // 3) CRITICAL: Wait for the job to be readable before triggering extract
+      const isReady = await waitForJobToBeReady(id)
+      if (!isReady) {
+        console.error(`Job ${id} creation failed - manifest not readable`)
+        return NextResponse.json({ error: 'Job creation failed - manifest not available' }, { status: 500 })
+      }
+
     } catch (statusError) {
       console.error(`Failed to create/save job status for ${id}:`, statusError)
       return NextResponse.json({ error: 'Failed to initialize job' }, { status: 500 })
     }
 
-    // 3) Kickoff extract (non-blocking but with error handling)
+    // 4) Now safely trigger extract with a small delay to ensure consistency
     try {
+      // Add a small buffer to ensure blob consistency across regions
+      await new Promise(resolve => setTimeout(resolve, 200))
+      
       const kickoffURL = new URL('/api/jobs/extract', req.url)
       console.log(`Triggering extract for job ${id}`)
       
@@ -76,6 +104,8 @@ export async function POST(req: Request) {
       
       if (!extractResponse.ok) {
         console.warn(`Extract kickoff failed for ${id}: ${extractResponse.status}`)
+        const errorText = await extractResponse.text().catch(() => 'Unknown error')
+        console.warn(`Extract error details:`, errorText)
       } else {
         console.log(`Extract successfully triggered for ${id}`)
       }
