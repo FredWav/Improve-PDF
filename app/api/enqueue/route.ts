@@ -13,6 +13,7 @@ export async function POST(req: Request) {
     if (!process.env.BLOB_READ_WRITE_TOKEN) {
       return NextResponse.json({ error: 'Server missing BLOB_READ_WRITE_TOKEN (configure Vercel Blob in Project Settings)' }, { status: 500 });
     }
+
     const ct = req.headers.get('content-type') || ''
     let body: any = {}
 
@@ -23,50 +24,72 @@ export async function POST(req: Request) {
       body = Object.fromEntries(form as any)
     } else {
       try {
-    if (!process.env.BLOB_READ_WRITE_TOKEN) {
-      return NextResponse.json({ error: 'Server missing BLOB_READ_WRITE_TOKEN (configure Vercel Blob in Project Settings)' }, { status: 500 });
-    } body = await req.json() } catch { body = {} }
+        body = await req.json() 
+      } catch { 
+        body = {} 
+      }
     }
 
-    const fileKey =
-      body.fileKey || body.inputFile || body.key || body.url || body.pathname || body.path
+    const fileKey = body.fileKey || body.inputFile || body.key || body.url || body.pathname || body.path
     const filename = body.filename || body.name || 'document.pdf'
 
     if (!fileKey) {
       return NextResponse.json({ error: 'Missing file key/url' }, { status: 400 })
     }
 
-    // 1) Manifest
+    // 1) Generate ID and create job status
     const id = generateJobId()
-    const status = await createJobStatus(id, filename, fileKey)
-
-    // 2) Log local puis save (pas de relecture)
-    status.logs.push({
-      timestamp: new Date().toISOString(),
-      level: 'info',
-      message: `Job enqueued with file: ${fileKey}`
-    })
+    console.log(`Creating job ${id} with fileKey: ${fileKey}`)
+    
     try {
-    if (!process.env.BLOB_READ_WRITE_TOKEN) {
-      return NextResponse.json({ error: 'Server missing BLOB_READ_WRITE_TOKEN (configure Vercel Blob in Project Settings)' }, { status: 500 });
-    } await saveJobStatus(status) } catch {}
-
-    // 3) Kickoff extract (non bloquant)
-    try {
-    if (!process.env.BLOB_READ_WRITE_TOKEN) {
-      return NextResponse.json({ error: 'Server missing BLOB_READ_WRITE_TOKEN (configure Vercel Blob in Project Settings)' }, { status: 500 });
+      const status = await createJobStatus(id, filename, fileKey)
+      console.log(`Job status created successfully for ${id}`)
+      
+      // 2) Add initial log and save
+      status.logs.push({
+        timestamp: new Date().toISOString(),
+        level: 'info',
+        message: `Job enqueued with file: ${fileKey}`
+      })
+      
+      await saveJobStatus(status)
+      console.log(`Job status saved successfully for ${id}`)
+    } catch (statusError) {
+      console.error(`Failed to create/save job status for ${id}:`, statusError)
+      return NextResponse.json({ error: 'Failed to initialize job' }, { status: 500 })
     }
+
+    // 3) Kickoff extract (non-blocking but with error handling)
+    try {
       const kickoffURL = new URL('/api/jobs/extract', req.url)
-      await fetch(kickoffURL.toString(), {
+      console.log(`Triggering extract for job ${id}`)
+      
+      const extractResponse = await fetch(kickoffURL.toString(), {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 
+          'content-type': 'application/json',
+          'user-agent': 'internal-job-scheduler'
+        },
         body: JSON.stringify({ id }),
         cache: 'no-store',
       })
-    } catch {}
+      
+      if (!extractResponse.ok) {
+        console.warn(`Extract kickoff failed for ${id}: ${extractResponse.status}`)
+      } else {
+        console.log(`Extract successfully triggered for ${id}`)
+      }
+    } catch (kickoffError) {
+      console.warn(`Extract kickoff error for ${id}:`, kickoffError)
+      // Non-blocking: the job is created, extract just didn't start automatically
+    }
 
     return NextResponse.json({ id }, { status: 200 })
   } catch (err: any) {
-    return NextResponse.json({ error: err?.message || 'Internal error' }, { status: 500 })
+    console.error('Enqueue error:', err)
+    return NextResponse.json({ 
+      error: err?.message || 'Internal error',
+      detail: err?.stack ? err.stack.slice(0, 200) : undefined
+    }, { status: 500 })
   }
 }
