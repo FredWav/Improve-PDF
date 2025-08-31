@@ -9,15 +9,16 @@ import {
   loadJobStatus,
 } from '@/lib/status'
 
-// Helper pour attendre que le blob soit disponible
-async function waitForJobToBeReady(id: string, maxAttempts = 5): Promise<boolean> {
+// Conservative approach: longer waits for blob consistency
+async function waitForJobToBeReady(id: string, maxAttempts = 8): Promise<boolean> {
   for (let i = 0; i < maxAttempts; i++) {
     const job = await loadJobStatus(id)
     if (job) {
       console.log(`Job ${id} is ready after ${i + 1} attempts`)
       return true
     }
-    const delay = 100 + (i * 50) // 100ms, 150ms, 200ms, etc.
+    // Longer delays: 200ms, 400ms, 600ms, 800ms, 1000ms, 1200ms, 1500ms, 2000ms
+    const delay = Math.min(200 + (i * 200), 2000)
     console.log(`Job ${id} not ready yet, waiting ${delay}ms... (attempt ${i + 1}/${maxAttempts})`)
     await new Promise(resolve => setTimeout(resolve, delay))
   }
@@ -72,11 +73,12 @@ export async function POST(req: Request) {
       await saveJobStatus(status)
       console.log(`Job status saved successfully for ${id}`)
 
-      // 3) CRITICAL: Wait for the job to be readable before triggering extract
+      // 3) Wait for job to be readable with conservative timing
       const isReady = await waitForJobToBeReady(id)
       if (!isReady) {
-        console.error(`Job ${id} creation failed - manifest not readable`)
-        return NextResponse.json({ error: 'Job creation failed - manifest not available' }, { status: 500 })
+        console.error(`Job ${id} creation failed - manifest not readable after extended wait`)
+        // Don't fail here - return the job ID and let client retry extract manually
+        console.log(`Job ${id} created but not immediately readable - client can retry extract`)
       }
 
     } catch (statusError) {
@@ -84,37 +86,48 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Failed to initialize job' }, { status: 500 })
     }
 
-    // 4) Now safely trigger extract with a small delay to ensure consistency
+    // 4) Conservative approach: Don't auto-trigger extract, let client handle it
+    // This prevents timing issues and gives more control to the frontend
+    console.log(`Job ${id} created successfully - extract can be triggered manually`)
+
+    // Optional: Try to trigger extract but don't fail if it doesn't work
+    let extractTriggered = false
     try {
-      // Add a small buffer to ensure blob consistency across regions
-      await new Promise(resolve => setTimeout(resolve, 200))
+      // Longer delay for OpenAI timing considerations
+      await new Promise(resolve => setTimeout(resolve, 1000))
       
       const kickoffURL = new URL('/api/jobs/extract', req.url)
-      console.log(`Triggering extract for job ${id}`)
+      console.log(`Attempting to trigger extract for job ${id}`)
       
       const extractResponse = await fetch(kickoffURL.toString(), {
         method: 'POST',
         headers: { 
           'content-type': 'application/json',
-          'user-agent': 'internal-job-scheduler'
+          'user-agent': 'auto-trigger-scheduler'
         },
         body: JSON.stringify({ id }),
         cache: 'no-store',
+        signal: AbortSignal.timeout(10000) // 10 second timeout
       })
       
-      if (!extractResponse.ok) {
-        console.warn(`Extract kickoff failed for ${id}: ${extractResponse.status}`)
-        const errorText = await extractResponse.text().catch(() => 'Unknown error')
-        console.warn(`Extract error details:`, errorText)
+      if (extractResponse.ok) {
+        console.log(`Extract auto-triggered successfully for job ${id}`)
+        extractTriggered = true
       } else {
-        console.log(`Extract successfully triggered for ${id}`)
+        console.warn(`Extract auto-trigger failed for ${id}: ${extractResponse.status}`)
       }
     } catch (kickoffError) {
-      console.warn(`Extract kickoff error for ${id}:`, kickoffError)
-      // Non-blocking: the job is created, extract just didn't start automatically
+      console.warn(`Extract auto-trigger error for ${id}:`, kickoffError)
     }
 
-    return NextResponse.json({ id }, { status: 200 })
+    return NextResponse.json({ 
+      id,
+      extractTriggered,
+      message: extractTriggered 
+        ? 'Job created and extract started'
+        : 'Job created - extract can be triggered manually if needed'
+    }, { status: 200 })
+    
   } catch (err: any) {
     console.error('Enqueue error:', err)
     return NextResponse.json({ 
