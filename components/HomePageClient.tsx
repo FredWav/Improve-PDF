@@ -1,83 +1,72 @@
 'use client'
 
 import React, { useState } from 'react'
-import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { UploadZone } from '@/components/UploadZone'
 import { JobsPanel } from '@/components/JobsPanel'
-import { t } from '@/lib/i18n'
 
+/**
+ * Page d'accueil côté client.
+ * On garde les mêmes exports et on câble correctement l'upload -> enqueue -> redirection.
+ */
 export function HomePageClient() {
+  const router = useRouter()
   const [submitting, setSubmitting] = useState(false)
   const [enqueueError, setEnqueueError] = useState<string | null>(null)
 
+  async function handleUploaded(info: any) {
+    // info vient de /api/upload et contient au minimum { url, pathname, size, uploadedAt }
+    const fileKey = info?.pathname || info?.fileId || info?.url
+    const filename =
+      info?.filename || info?.name || (typeof info?.pathname === 'string' ? info.pathname.split('/').pop() : 'document.pdf')
+
+    try {
+      setSubmitting(true)
+      setEnqueueError(null)
+
+      const res = await fetch('/api/enqueue', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ fileKey, filename })
+      })
+
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(json?.error || 'Impossible de démarrer le traitement')
+      }
+
+      const id = json?.id || json?.jobId
+      if (!id) {
+        throw new Error('Réponse invalide du serveur (id manquant)')
+      }
+
+      router.push(`/ebook/${id}`)
+    } catch (e: any) {
+      setEnqueueError(e?.message || 'Erreur inconnue')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
   return (
     <div className="container-page py-10">
-      {/* HERO */}
-      <div className="mb-8">
-        <h1 className="text-4xl font-extrabold tracking-tight text-slate-900">
-          Improve <span className="bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">PDF</span>
+      <section className="mb-10">
+        <h1 className="text-2xl font-semibold text-slate-800 mb-2">
+          Améliorer un PDF
         </h1>
-        <p className="mt-2 text-[15px] leading-relaxed text-slate-600 max-w-3xl">
-          Interface personnelle : chaque étape t’explique ce qu’elle fait. Ouvre un job pour voir les détails narratifs en direct.
+        <p className="text-slate-600 mb-6">
+          Dépose ton PDF ci-dessous. On l’analyse, on le nettoie, on illustre et on te propose les exports (Markdown, HTML, EPUB, PDF).
         </p>
-      </div>
 
-      {/* GRILLE */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start mb-10">
-        <div className="lg:col-span-2">
-          <div className="card p-6">
-            <h2 className="text-lg font-semibold text-slate-800 mb-4">
-              {t('actions.upload') || 'Importer un PDF'}
-            </h2>
+        <UploadZone disabled={submitting} onUploaded={handleUploaded} />
 
-            <UploadZone
-              disabled={submitting}
-              onUploaded={async (data: any) => {
-                try {
-                  setSubmitting(true)
-                  setEnqueueError(null)
-                  const res = await fetch('/api/enqueue', {
-                    method: 'POST',
-                    headers: { 'content-type': 'application/json' },
-                    body: JSON.stringify({
-                      fileKey: data?.key || data?.url || data?.path,
-                      filename: data?.filename || data?.name || 'document.pdf'
-                    })
-                  })
-                  if (!res.ok) {
-                    const j = await res.json().catch(() => ({}))
-                    throw new Error(j?.error || `Enqueue failed (${res.status})`)
-                  }
-                } catch (e: any) {
-                  setEnqueueError(e?.message ?? 'Erreur lors de la mise en file')
-                } finally {
-                  setSubmitting(false)
-                }
-              }}
-            />
-
-            {enqueueError && <div className="mt-4 text-sm text-red-600">{enqueueError}</div>}
-
-            <p className="mt-4 text-xs text-slate-500">
-              Besoin d’aide ? <Link href="/docs" className="text-blue-600 hover:underline">Consulte la doc</Link>.
-            </p>
+        {enqueueError && (
+          <div className="mt-4 text-sm rounded-md border border-red-200 bg-red-50 px-3 py-2 text-red-700">
+            {enqueueError}
           </div>
-        </div>
+        )}
+      </section>
 
-        <aside className="card p-6">
-          <h3 className="text-sm font-semibold text-slate-800 mb-3">Comment ça marche ?</h3>
-          <ol className="space-y-3 text-[13px] text-slate-600">
-            <li>1. Dépose ton PDF ci-contre.</li>
-            <li>2. Extraction → Nettoyage → Réécriture → Images → Rendu.</li>
-            <li>3. Suis la progression en direct et récupère HTML/MD/PDF/EPUB.</li>
-          </ol>
-          <div className="mt-4 text-[11px] text-slate-400">
-            Tes fichiers sont traités de façon éphémère pour générer les livrables.
-          </div>
-        </aside>
-      </div>
-
-      {/* Jobs récents */}
       <section>
         <h3 className="text-base font-semibold text-slate-800 mb-3">Traitements récents</h3>
         <JobsPanel />
