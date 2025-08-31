@@ -1,5 +1,4 @@
 import { uploadJSON, getJSON, uploadText } from './blob'
-import { appendJobId } from './jobIndex'
 
 export type StepStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED'
 
@@ -53,7 +52,7 @@ const MANIFEST_PATH = (id: string) => `jobs/${id}/manifest.json`
 
 // Reduced retry attempts for faster failures
 const RETRY_ATTEMPTS = 3
-const RETRY_BASE_DELAY_MS = 50
+const RETRY_BASE_DELAY_MS = 100
 
 function sleep(ms: number) {
   return new Promise(res => setTimeout(res, ms))
@@ -125,16 +124,6 @@ export async function createJobStatus(
   try {
     await saveJobStatus(status)
     console.log(`Job status saved for ${id}`)
-    
-    // Add to job index
-    try {
-      await appendJobId(id)
-      console.log(`Job ${id} added to index`)
-    } catch (indexError) {
-      console.warn(`Failed to add job ${id} to index:`, indexError)
-      // Non-fatal error
-    }
-    
     return status
   } catch (error) {
     console.error(`Failed to save job status for ${id}:`, error)
@@ -146,10 +135,14 @@ export async function saveJobStatus(status: JobStatus): Promise<void> {
   status.updatedAt = new Date().toISOString()
   
   try {
+    // CRITICAL: Utilise le timestamp dans la clé pour éviter les conflits
+    const uniqueKey = MANIFEST_PATH(status.id)
+    console.log(`Saving job status to: ${uniqueKey}`)
+    
     await uploadJSON(status, {
-      key: MANIFEST_PATH(status.id),
+      key: uniqueKey,
       addTimestamp: false,
-      allowOverwrite: true
+      allowOverwrite: true // Force overwrite
     })
     console.log(`Job status updated for ${status.id}`)
   } catch (error) {
