@@ -93,7 +93,7 @@ export async function deleteBlob(urlOrPathname: string) {
 }
 
 /**
- * Lecture robuste (URL complète ou pathname) avec:
+ * Lecture robuste (URL complète ou pathname) avec :
  * 1) essai hôte public (ENV), 2) essai domaine générique,
  * 3) fallback via list() pour retrouver l’URL publique réelle.
  */
@@ -199,7 +199,7 @@ async function resolveViaList(key: string): Promise<string | null> {
       prefix: key,
       token: process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_READ_ONLY_TOKEN
     });
-    const hit = out.blobs?.find(b => b.pathname === key) || null;
+    const hit = (out as any).blobs?.find((b: any) => b.pathname === key) || null;
     return hit?.url ?? null;
   } catch {
     return null;
