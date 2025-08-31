@@ -2,6 +2,24 @@
 import { useEffect, useRef, useState } from 'react'
 import { deriveJobInfo, type DerivedJobInfo } from '@/lib/ui/jobNarrative'
 
+async function fetchJob(jobId: string) {
+  // 1) cheme “jobs” (nouvel alias)
+  let res = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`, { cache: 'no-store' })
+  if (res.status === 404) {
+    // 2) fallback vers le handler d’origine
+    res = await fetch(`/api/status/${encodeURIComponent(jobId)}`, { cache: 'no-store' })
+  }
+  if (!res.ok) {
+    let msg = `Status ${res.status}`
+    try {
+      const j = await res.json()
+      if (j?.error) msg = j.error
+    } catch {}
+    throw new Error(msg)
+  }
+  return res.json()
+}
+
 export function useJob(jobId: string, { interval = 2000 }: { interval?: number } = {}) {
   const [data, setData] = useState<any>(null)
   const [derived, setDerived] = useState<DerivedJobInfo | null>(null)
@@ -14,25 +32,24 @@ export function useJob(jobId: string, { interval = 2000 }: { interval?: number }
 
     async function tick() {
       try {
-        const res = await fetch(`/api/jobs/${jobId}`, { cache: 'no-store' })
-        if (!res.ok) throw new Error(`Status ${res.status}`)
-        const json = await res.json()
-        if (!cancelled) {
-          setData(json)
+        const json = await fetchJob(jobId)
+        if (cancelled) return
+
+        setData(json)
+        try {
           const d = deriveJobInfo(json)
-            setDerived(d)
-          setError(null)
-          const allFinished = d.completedSteps === d.totalSteps || d.failed
-          if (allFinished) {
-            setDone(true)
-            return
-          }
+          setDerived(d)
+          setDone(d.failed || d.percent >= 100 || json?.completed === true)
+        } catch {
+          // Pas bloquant si derive plante
         }
+        setError(null)
       } catch (e: any) {
-        if (!cancelled) setError(e.message || 'Error')
-      }
-      if (!cancelled) {
-        timer.current = window.setTimeout(tick, interval)
+        if (!cancelled) setError(e?.message || 'Erreur inconnue')
+      } finally {
+        if (!cancelled) {
+          timer.current = window.setTimeout(tick, interval)
+        }
       }
     }
 
