@@ -42,7 +42,7 @@ export async function saveBlob(
   const key = buildKey(file, opts)
   const token = requireReadWriteToken()
 
-  console.log(`Saving blob with key: ${key}`)
+  console.log(`Saving blob with key: ${key}, allowOverwrite: ${opts?.allowOverwrite}`)
 
   const putOptions: any = {
     access: opts?.access ?? 'public',
@@ -50,8 +50,14 @@ export async function saveBlob(
     // Force multipart for larger files and better consistency
     multipart: file.size > 5 * 1024 * 1024 // 5MB threshold
   }
-  if (opts?.allowOverwrite) putOptions.addRandomSuffix = false
-  if (opts?.addRandomSuffix) putOptions.addRandomSuffix = true
+  
+  // CRITICAL: Handle overwrite options correctly
+  if (opts?.allowOverwrite === true) {
+    // Don't add random suffix if we want to overwrite
+    putOptions.addRandomSuffix = false
+  } else if (opts?.addRandomSuffix === true) {
+    putOptions.addRandomSuffix = true
+  }
 
   let putResult: PutBlobResult
   try {
@@ -59,9 +65,24 @@ export async function saveBlob(
     console.log(`Blob saved successfully: ${putResult.url}`)
   } catch (err: any) {
     console.error(`Blob upload failed for key="${key}":`, err)
-    throw new Error(
-      `Blob upload failed for key="${key}": ${err?.message || String(err)}`
-    )
+    
+    // If it's an overwrite error and we haven't explicitly set allowOverwrite, try once more
+    if (err?.message?.includes('already exists') && opts?.allowOverwrite !== true) {
+      console.log(`Retrying blob save with allowOverwrite for key: ${key}`)
+      try {
+        putOptions.addRandomSuffix = false // Force overwrite
+        putResult = await put(key, file, putOptions)
+        console.log(`Blob saved on retry: ${putResult.url}`)
+      } catch (retryErr: any) {
+        throw new Error(
+          `Blob upload failed for key="${key}" even with retry: ${retryErr?.message || String(retryErr)}`
+        )
+      }
+    } else {
+      throw new Error(
+        `Blob upload failed for key="${key}": ${err?.message || String(err)}`
+      )
+    }
   }
 
   const size = file instanceof File ? file.size : (file as any).size ?? 0
@@ -174,7 +195,7 @@ export async function uploadText(
     const result = await saveBlob(blob, { 
       key: keyOrOpts, 
       addTimestamp: false, 
-      allowOverwrite: true 
+      allowOverwrite: true  // CRITICAL: Always allow overwrite for text uploads
     })
     
     // Verify the upload worked by attempting to read it back
@@ -209,7 +230,7 @@ export async function uploadJSON(
     const result = await saveBlob(blob, { 
       key: keyOrOpts, 
       addTimestamp: false, 
-      allowOverwrite: true 
+      allowOverwrite: true  // CRITICAL: Always allow overwrite for JSON uploads
     })
     
     // Verify the JSON upload
