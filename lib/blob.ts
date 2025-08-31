@@ -105,16 +105,12 @@ export async function getFile(pathOrUrl: string, maxRetries = 3): Promise<Respon
       console.log(`Fetching blob: ${url} (attempt ${attempt + 1}/${maxRetries})`)
       
       const res = await fetch(url, { 
-        headers,
-        cache: 'no-store', // Disable caching to get latest version
-        // Add headers to bypass potential CDN caching
-        ...{
-          headers: {
-            ...headers,
-            'Cache-Control': 'no-cache',
-            'Pragma': 'no-cache'
-          }
-        }
+        headers: {
+          ...headers,
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache'
+        },
+        cache: 'no-store' // Disable caching to get latest version
       })
       
       if (res.ok) {
