@@ -5,9 +5,41 @@ import { deriveJobInfo } from '@/lib/ui/jobNarrative'
 import { StepsProgress } from '@/components/StepsProgress'
 import { ProgressBar } from '@/components/ProgressBar'
 
-export function JobVerboseStatus({ job }: { job: JobStatus }) {
+interface JobVerboseStatusProps {
+  job: JobStatus
+  retryAttempted?: boolean
+  onManualRetry?: () => Promise<{ success: boolean; message?: string }>
+}
+
+export function JobVerboseStatus({ job, retryAttempted, onManualRetry }: JobVerboseStatusProps) {
   const [showRaw, setShowRaw] = useState(false)
+  const [retrying, setRetrying] = useState(false)
+  const [retryMessage, setRetryMessage] = useState<string | null>(null)
+  
   const info = deriveJobInfo(job)
+  
+  // Determine if retry is needed/available
+  const isStuck = job.steps.extract === 'PENDING' && 
+    Date.now() - new Date(job.createdAt).getTime() > 15000 // 15 seconds old
+  
+  const canRetry = (isStuck || job.steps.extract === 'FAILED') && !retrying
+  const extractFailed = job.steps.extract === 'FAILED'
+
+  const handleManualRetry = async () => {
+    if (!onManualRetry || retrying) return
+    
+    setRetrying(true)
+    setRetryMessage(null)
+    
+    try {
+      const result = await onManualRetry()
+      setRetryMessage(result.message || (result.success ? 'Retry triggered' : 'Retry failed'))
+    } catch (error) {
+      setRetryMessage(`Retry error: ${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      setRetrying(false)
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -38,6 +70,46 @@ export function JobVerboseStatus({ job }: { job: JobStatus }) {
             <p className="mt-2 text-red-600 font-medium">
               Consulte les logs ci‑dessous pour le détail.
             </p>
+          )}
+          
+          {/* Retry section */}
+          {(isStuck || extractFailed) && (
+            <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1">
+                  <p className="text-amber-800 font-medium text-xs">
+                    {isStuck ? '⚠️ Le traitement semble bloqué' : '❌ Échec de l\'extraction'}
+                  </p>
+                  <p className="text-amber-700 text-xs mt-1">
+                    {isStuck 
+                      ? 'L\'extraction n\'a pas démarré. Cela peut être dû à des délais de cohérence du stockage.'
+                      : 'L\'extraction a échoué. Vous pouvez relancer le processus.'
+                    }
+                  </p>
+                  {retryMessage && (
+                    <p className="text-xs mt-1 font-medium text-blue-700">
+                      💬 {retryMessage}
+                    </p>
+                  )}
+                </div>
+                
+                {canRetry && onManualRetry && (
+                  <button
+                    onClick={handleManualRetry}
+                    disabled={retrying}
+                    className="px-3 py-1 text-xs font-medium bg-amber-100 hover:bg-amber-200 text-amber-800 rounded border border-amber-300 transition-colors disabled:opacity-50"
+                  >
+                    {retrying ? '⏳ Relance...' : '🔄 Relancer'}
+                  </button>
+                )}
+              </div>
+              
+              {retryAttempted && !retrying && (
+                <p className="text-xs text-amber-600 mt-2 font-medium">
+                  ℹ️ Tentative automatique de relance effectuée
+                </p>
+              )}
+            </div>
           )}
         </div>
 
@@ -87,7 +159,7 @@ export function JobVerboseStatus({ job }: { job: JobStatus }) {
       <div className="bg-white border rounded-lg p-6 shadow-sm">
         <h3 className="text-sm font-medium mb-3">Sorties</h3>
         {Object.entries(job.outputs || {}).length === 0 && (
-          <p className="text-xs text-slate-500">Aucune sortie disponible pour l’instant.</p>
+          <p className="text-xs text-slate-500">Aucune sortie disponible pour l'instant.</p>
         )}
         <ul className="text-xs space-y-1">
           {Object.entries(job.outputs || {}).map(([k, v]) => (
