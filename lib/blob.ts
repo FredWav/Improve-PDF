@@ -15,8 +15,8 @@ export interface StoredBlobResult extends PutBlobResult {
   uploadedAt: string
 }
 
-/** Build a pathname for the blob. */
-function buildKey(file: File | Blob, opts?: SaveBlobOptions): string {
+/** Construit la clé (pathname) */
+function buildKey (file: File | Blob, opts?: SaveBlobOptions): string {
   if (opts?.key) return opts.key.replace(/^\/+/, '')
   const prefix = (opts?.prefix ?? 'uploads/').replace(/^\/+/, '')
   const baseName = opts?.filename ?? (file instanceof File ? file.name : `file-${Date.now()}.bin`)
@@ -24,42 +24,39 @@ function buildKey(file: File | Blob, opts?: SaveBlobOptions): string {
   return `${prefix}${ts}${baseName}`
 }
 
-/** Ensure we have the RW token at runtime. */
-function requireReadWriteToken(): string {
+/** Token RW obligatoire au runtime */
+function requireReadWriteToken (): string {
   const token = process.env.BLOB_READ_WRITE_TOKEN
   if (!token) {
     throw new Error(
-      'Missing BLOB_READ_WRITE_TOKEN environment variable. Create a Blob store in Vercel and add the token to your project settings.'
+      'Missing BLOB_READ_WRITE_TOKEN environment variable. Create a Blob store in Vercel and add the token to your Project Settings.'
     )
   }
   return token
 }
 
 /**
- * Save a blob to Vercel Blob.
- * IMPORTANT: on passe bien allowOverwrite à put(), sinon 409 "already exists".
+ * Upload générique vers Vercel Blob.
+ * ⚠️ Correctif critique : on transmet bien allowOverwrite à put().
  */
-export async function saveBlob(
-  file: File | Blob,
-  opts?: SaveBlobOptions
-): Promise<StoredBlobResult> {
+export async function saveBlob (file: File | Blob, opts?: SaveBlobOptions): Promise<StoredBlobResult> {
   const key = buildKey(file, opts)
   const token = requireReadWriteToken()
 
-  console.log(`Saving blob with key: ${key}, allowOverwrite: ${opts?.allowOverwrite}`)
+  console.log(`Saving blob with key: ${key}, allowOverwrite: ${opts?.allowOverwrite === true}`)
 
+  const size = (file as any)?.size ?? 0
   const putOptions: any = {
     access: opts?.access ?? 'public',
     token,
-    // multipart conseillé pour les gros fichiers
-    multipart: (file as any).size ? (file as any).size > 5 * 1024 * 1024 : false
+    // multipart pour plus de fiabilité sur fichiers >5Mo
+    multipart: size > 5 * 1024 * 1024
   }
 
-  // ⬇️ Correctif critique : on transmet allowOverwrite au SDK
+  // ⬇️ Transmission correcte des options d’unicité
   if (opts?.allowOverwrite === true) {
-    // en overwrite, on ne veut pas de suffixe aléatoire
-    putOptions.addRandomSuffix = false
     putOptions.allowOverwrite = true
+    putOptions.addRandomSuffix = false
   } else if (opts?.addRandomSuffix === true) {
     putOptions.addRandomSuffix = true
   }
@@ -67,29 +64,23 @@ export async function saveBlob(
   let putResult: PutBlobResult
   try {
     putResult = await put(key, file, putOptions)
-    console.log(`Blob saved successfully: ${putResult.url}`)
-  } catch (err: any) {
-    console.error(`Blob upload failed for key="${key}":`, err)
+    console.log(`Blob saved: ${putResult.url}`)
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error(`Blob upload failed for key="${key}":`, message)
 
-    // Collision non prévue : on retente 1 fois en overwrite
-    if (err?.message?.includes('already exists') && opts?.allowOverwrite !== true) {
-      console.log(`Retrying blob save with allowOverwrite for key: ${key}`)
-      try {
-        putOptions.allowOverwrite = true
-        putOptions.addRandomSuffix = false
-        putResult = await put(key, file, putOptions)
-        console.log(`Blob saved on retry: ${putResult.url}`)
-      } catch (retryErr: any) {
-        throw new Error(
-          `Blob upload failed for key="${key}" even with retry: ${retryErr?.message || String(retryErr)}`
-        )
-      }
+    // Collision non prévue → 1 retry en overwrite
+    if (message.includes('already exists') && opts?.allowOverwrite !== true) {
+      console.log(`Retrying with allowOverwrite=true for key: ${key}`)
+      putOptions.allowOverwrite = true
+      putOptions.addRandomSuffix = false
+      putResult = await put(key, file, putOptions)
+      console.log(`Blob saved on retry: ${putResult.url}`)
     } else {
-      throw new Error(`Blob upload failed for key="${key}": ${err?.message || String(err)}`)
+      throw new Error(`Blob upload failed for key="${key}": ${message}`)
     }
   }
 
-  const size = (file as any).size ?? 0
   const uploadedAt =
     (putResult as any).uploadedAt
       ? new Date((putResult as any).uploadedAt).toISOString()
@@ -98,21 +89,21 @@ export async function saveBlob(
   return { ...putResult, size, uploadedAt }
 }
 
-/** Convenience: list blobs by prefix. */
-export async function listBlobs(prefix = 'uploads/') {
+/** Lister par préfixe */
+export async function listBlobs (prefix = 'uploads/') {
   return list({ prefix, token: process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_READ_ONLY_TOKEN })
 }
 
-/** Convenience: delete a blob by URL or pathname. */
-export async function deleteBlob(urlOrPathname: string) {
+/** Supprimer par URL ou pathname */
+export async function deleteBlob (urlOrPathname: string) {
   return del(urlOrPathname, { token: process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_READ_ONLY_TOKEN })
 }
 
 /**
- * GET a blob (URL complet ou pathname) avec petits retries et no-cache.
- * Tente le domaine générique puis (si défini) l’hôte public BLOB_PUBLIC_BASE_URL.
+ * GET d’un blob (URL complète ou pathname) avec petits retries et no-cache.
+ * Essaie le domaine générique puis (si défini) l’hôte public BLOB_PUBLIC_BASE_URL.
  */
-export async function getFile(pathOrUrl: string, maxRetries = 3): Promise<Response> {
+export async function getFile (pathOrUrl: string, maxRetries = 3): Promise<Response> {
   const isFull = /^https?:\/\//i.test(pathOrUrl)
   const key = isFull ? pathOrUrl : pathOrUrl.replace(/^\/+/, '')
 
@@ -144,6 +135,7 @@ export async function getFile(pathOrUrl: string, maxRetries = 3): Promise<Respon
 
         lastError = new Error(`HTTP ${res.status}: ${res.statusText}`)
         console.warn(`Blob fetch attempt ${attempt + 1} failed: ${res.status} ${res.statusText}`)
+
         if (attempt < maxRetries - 1) {
           const delay = Math.min(100 * Math.pow(2, attempt), 1000)
           await new Promise(r => setTimeout(r, delay))
@@ -162,8 +154,8 @@ export async function getFile(pathOrUrl: string, maxRetries = 3): Promise<Respon
   throw (lastError instanceof Error ? lastError : new Error(String(lastError || 'Unknown fetch error')))
 }
 
-/** Upload JSON pratique. */
-export async function uploadJSON(
+/** Upload JSON pratique */
+export async function uploadJSON (
   data: any,
   keyOrOpts: string | (SaveBlobOptions & { key?: string })
 ) {
@@ -174,15 +166,15 @@ export async function uploadJSON(
   return saveBlob(blob, keyOrOpts)
 }
 
-/** GET + parse JSON pratique. */
-export async function getJSON<T = any>(pathOrUrl: string, maxRetries = 3): Promise<T> {
+/** GET + parse JSON pratique */
+export async function getJSON<T = any> (pathOrUrl: string, maxRetries = 3): Promise<T> {
   const res = await getFile(pathOrUrl, maxRetries)
   const text = await res.text()
   return JSON.parse(text) as T
 }
 
-/** Upload texte pratique. */
-export async function uploadText(
+/** Upload texte pratique */
+export async function uploadText (
   text: string,
   keyOrOpts: string | (SaveBlobOptions & { key?: string })
 ) {
