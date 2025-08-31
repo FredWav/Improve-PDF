@@ -10,7 +10,7 @@ import {
 } from '@/lib/status'
 import { jobCreationQueue } from '@/lib/queue'
 
-// Job creation logic wrapped in queue to avoid concurrency issues
+// Simplified job creation without problematic index
 async function createJobInQueue(fileKey: string, filename: string): Promise<string> {
   return jobCreationQueue.add(async () => {
     const id = generateJobId()
@@ -29,6 +29,9 @@ async function createJobInQueue(fileKey: string, filename: string): Promise<stri
       
       await saveJobStatus(status)
       console.log(`[Queue] Job status saved successfully for ${id}`)
+      
+      // No index to update - jobs are discovered via blob listing
+      console.log(`[Queue] Job ${id} ready for processing (no index update needed)`)
       
       return id
     } catch (error) {
@@ -75,7 +78,7 @@ export async function POST(req: Request) {
 
     console.log(`Enqueue request received - fileKey: ${fileKey}, queue length: ${jobCreationQueue.length}`)
 
-    // Create job through sequential queue to avoid concurrency issues
+    // Create job through sequential queue (no more index conflicts!)
     let jobId: string
     try {
       jobId = await createJobInQueue(fileKey, filename)
@@ -90,7 +93,7 @@ export async function POST(req: Request) {
     }
 
     // Wait a moment to ensure blob consistency
-    await new Promise(resolve => setTimeout(resolve, 500))
+    await new Promise(resolve => setTimeout(resolve, 300))
 
     // Verify job is readable before proceeding
     let job
@@ -144,7 +147,7 @@ export async function POST(req: Request) {
       queueLength: jobCreationQueue.length,
       message: extractTriggered 
         ? 'Job created and extract started'
-        : 'Job created - extract can be triggered manually if needed',
+        : 'Job created successfully - extract can be triggered manually if needed',
       step: 'completed'
     }, { status: 200 })
     
