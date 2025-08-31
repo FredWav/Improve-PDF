@@ -8,28 +8,43 @@ import {
   saveJobStatus,
   loadJobStatus,
 } from '@/lib/status'
+import { jobCreationQueue } from '@/lib/queue'
 
-// Conservative approach: longer waits for blob consistency
-async function waitForJobToBeReady(id: string, maxAttempts = 8): Promise<boolean> {
-  for (let i = 0; i < maxAttempts; i++) {
-    const job = await loadJobStatus(id)
-    if (job) {
-      console.log(`Job ${id} is ready after ${i + 1} attempts`)
-      return true
+// Job creation logic wrapped in queue to avoid concurrency issues
+async function createJobInQueue(fileKey: string, filename: string): Promise<string> {
+  return jobCreationQueue.add(async () => {
+    const id = generateJobId()
+    console.log(`[Queue] Creating job ${id} with fileKey: ${fileKey}`)
+    
+    try {
+      const status = await createJobStatus(id, filename, fileKey)
+      console.log(`[Queue] Job status created successfully for ${id}`)
+      
+      // Add initial log
+      status.logs.push({
+        timestamp: new Date().toISOString(),
+        level: 'info',
+        message: `Job enqueued with file: ${fileKey}`
+      })
+      
+      await saveJobStatus(status)
+      console.log(`[Queue] Job status saved successfully for ${id}`)
+      
+      return id
+    } catch (error) {
+      console.error(`[Queue] Failed to create job ${id}:`, error)
+      throw error
     }
-    // Longer delays: 200ms, 400ms, 600ms, 800ms, 1000ms, 1200ms, 1500ms, 2000ms
-    const delay = Math.min(200 + (i * 200), 2000)
-    console.log(`Job ${id} not ready yet, waiting ${delay}ms... (attempt ${i + 1}/${maxAttempts})`)
-    await new Promise(resolve => setTimeout(resolve, delay))
-  }
-  console.warn(`Job ${id} still not ready after ${maxAttempts} attempts`)
-  return false
+  })
 }
 
 export async function POST(req: Request) {
   try {
     if (!process.env.BLOB_READ_WRITE_TOKEN) {
-      return NextResponse.json({ error: 'Server missing BLOB_READ_WRITE_TOKEN (configure Vercel Blob in Project Settings)' }, { status: 500 });
+      return NextResponse.json({ 
+        error: 'Server missing BLOB_READ_WRITE_TOKEN (configure Vercel Blob in Project Settings)',
+        step: 'configuration_check'
+      }, { status: 500 });
     }
 
     const ct = req.headers.get('content-type') || ''
@@ -52,52 +67,54 @@ export async function POST(req: Request) {
     const filename = body.filename || body.name || 'document.pdf'
 
     if (!fileKey) {
-      return NextResponse.json({ error: 'Missing file key/url' }, { status: 400 })
+      return NextResponse.json({ 
+        error: 'Missing file key/url',
+        step: 'validation'
+      }, { status: 400 })
     }
 
-    // 1) Generate ID and create job status
-    const id = generateJobId()
-    console.log(`Creating job ${id} with fileKey: ${fileKey}`)
-    
+    console.log(`Enqueue request received - fileKey: ${fileKey}, queue length: ${jobCreationQueue.length}`)
+
+    // Create job through sequential queue to avoid concurrency issues
+    let jobId: string
     try {
-      const status = await createJobStatus(id, filename, fileKey)
-      console.log(`Job status created successfully for ${id}`)
-      
-      // 2) Add initial log and save
-      status.logs.push({
-        timestamp: new Date().toISOString(),
-        level: 'info',
-        message: `Job enqueued with file: ${fileKey}`
-      })
-      
-      await saveJobStatus(status)
-      console.log(`Job status saved successfully for ${id}`)
-
-      // 3) Wait for job to be readable with conservative timing
-      const isReady = await waitForJobToBeReady(id)
-      if (!isReady) {
-        console.error(`Job ${id} creation failed - manifest not readable after extended wait`)
-        // Don't fail here - return the job ID and let client retry extract manually
-        console.log(`Job ${id} created but not immediately readable - client can retry extract`)
-      }
-
+      jobId = await createJobInQueue(fileKey, filename)
+      console.log(`Job creation completed: ${jobId}`)
     } catch (statusError) {
-      console.error(`Failed to create/save job status for ${id}:`, statusError)
-      return NextResponse.json({ error: 'Failed to initialize job' }, { status: 500 })
+      console.error(`Failed to create job:`, statusError)
+      return NextResponse.json({ 
+        error: 'Failed to initialize job',
+        detail: statusError instanceof Error ? statusError.message : String(statusError),
+        step: 'job_creation'
+      }, { status: 500 })
     }
 
-    // 4) Conservative approach: Don't auto-trigger extract, let client handle it
-    // This prevents timing issues and gives more control to the frontend
-    console.log(`Job ${id} created successfully - extract can be triggered manually`)
+    // Wait a moment to ensure blob consistency
+    await new Promise(resolve => setTimeout(resolve, 500))
 
-    // Optional: Try to trigger extract but don't fail if it doesn't work
+    // Verify job is readable before proceeding
+    let job
+    try {
+      job = await loadJobStatus(jobId)
+      if (!job) {
+        throw new Error('Job not found after creation')
+      }
+      console.log(`Job ${jobId} verified as readable`)
+    } catch (verifyError) {
+      console.error(`Job ${jobId} not readable after creation:`, verifyError)
+      return NextResponse.json({
+        error: 'Job created but not immediately readable - please retry in a moment',
+        jobId,
+        retryable: true,
+        step: 'verification'
+      }, { status: 202 }) // 202 Accepted - processing but not complete
+    }
+
+    // Optional: Try to trigger extract (non-blocking)
     let extractTriggered = false
     try {
-      // Longer delay for OpenAI timing considerations
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      
       const kickoffURL = new URL('/api/jobs/extract', req.url)
-      console.log(`Attempting to trigger extract for job ${id}`)
+      console.log(`Attempting to trigger extract for job ${jobId}`)
       
       const extractResponse = await fetch(kickoffURL.toString(), {
         method: 'POST',
@@ -105,34 +122,38 @@ export async function POST(req: Request) {
           'content-type': 'application/json',
           'user-agent': 'auto-trigger-scheduler'
         },
-        body: JSON.stringify({ id }),
+        body: JSON.stringify({ id: jobId }),
         cache: 'no-store',
-        signal: AbortSignal.timeout(10000) // 10 second timeout
+        signal: AbortSignal.timeout(8000) // 8 second timeout
       })
       
       if (extractResponse.ok) {
-        console.log(`Extract auto-triggered successfully for job ${id}`)
+        console.log(`Extract auto-triggered successfully for job ${jobId}`)
         extractTriggered = true
       } else {
-        console.warn(`Extract auto-trigger failed for ${id}: ${extractResponse.status}`)
+        const errorText = await extractResponse.text().catch(() => 'Unknown error')
+        console.warn(`Extract auto-trigger failed for ${jobId}: ${extractResponse.status} - ${errorText}`)
       }
     } catch (kickoffError) {
-      console.warn(`Extract auto-trigger error for ${id}:`, kickoffError)
+      console.warn(`Extract auto-trigger error for ${jobId}:`, kickoffError)
     }
 
     return NextResponse.json({ 
-      id,
+      id: jobId,
       extractTriggered,
+      queueLength: jobCreationQueue.length,
       message: extractTriggered 
         ? 'Job created and extract started'
-        : 'Job created - extract can be triggered manually if needed'
+        : 'Job created - extract can be triggered manually if needed',
+      step: 'completed'
     }, { status: 200 })
     
   } catch (err: any) {
     console.error('Enqueue error:', err)
     return NextResponse.json({ 
       error: err?.message || 'Internal error',
-      detail: err?.stack ? err.stack.slice(0, 200) : undefined
+      detail: err?.stack ? err.stack.slice(0, 200) : undefined,
+      step: 'internal_error'
     }, { status: 500 })
   }
 }
