@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { getAllJobsSummaries } from '@/lib/jobIndex'
+import { getAllJobsSummaries } from '@/lib/jobsNoIndex'
 
 export async function GET() {
   try {
