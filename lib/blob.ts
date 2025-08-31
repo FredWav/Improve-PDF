@@ -37,7 +37,7 @@ function requireReadWriteToken(): string {
 
 /**
  * Upload vers Vercel Blob.
- * Important : on transmet bien allowOverwrite à put() si demandé.
+ * Point clé : on transmet bien allowOverwrite à put() si demandé.
  */
 export async function saveBlob(file: File | Blob, opts?: SaveBlobOptions): Promise<StoredBlobResult> {
   const key = buildKey(file, opts);
@@ -50,7 +50,7 @@ export async function saveBlob(file: File | Blob, opts?: SaveBlobOptions): Promi
     multipart: size > 5 * 1024 * 1024 // plus stable si > 5 Mo
   };
 
-  // Transmission correcte des options d’unicité
+  // Transmission des options d’unicité
   if (opts?.allowOverwrite === true) {
     putOptions.allowOverwrite = true;
     putOptions.addRandomSuffix = false;
@@ -93,41 +93,43 @@ export async function deleteBlob(urlOrPathname: string) {
 }
 
 /**
- * Lecture robuste d’un blob (URL complète ou pathname) avec retries.
- * Tente d’abord l’hôte public (ENV BLOB_PUBLIC_BASE_URL), puis le domaine générique.
+ * Lecture robuste (URL complète ou pathname) avec:
+ * 1) essai hôte public (ENV), 2) essai domaine générique,
+ * 3) fallback via list() pour retrouver l’URL publique réelle.
  */
-export async function getFile(pathOrUrl: string, maxRetries = 6): Promise<Response> {
+export async function getFile(pathOrUrl: string, maxRetries = 8): Promise<Response> {
   const isFull = /^https?:\/\//i.test(pathOrUrl);
   const key = isFull ? pathOrUrl : pathOrUrl.replace(/^\/+/, '');
 
-  // 1) si URL complète → on la lit telle quelle
-  if (isFull) {
-    return doFetchWithRetries(key, maxRetries);
-  }
+  // 1) URL complète : on lit telle quelle
+  if (isFull) return doFetchWithRetries(key, maxRetries);
 
-  // 2) sinon, on essaie d’abord l’hôte public (là où tu viens d’écrire)
+  // 2) candidates : hôte public (si défini), puis domaine générique
   const publicHost = process.env.BLOB_PUBLIC_BASE_URL; // ex: jdjuok2idyn9orll.public.blob.vercel-storage.com
   const candidates: string[] = [];
   if (publicHost) candidates.push(`https://${publicHost}/${key}`);
-
-  // 3) puis le domaine générique
   candidates.push(`https://blob.vercel-storage.com/${key}`);
 
-  let lastErr: unknown = null;
+  // 2a) on tente chaque candidate avec retries
   for (const url of candidates) {
     try {
-      const res = await doFetchWithRetries(url, maxRetries);
-      return res;
-    } catch (e) {
-      lastErr = e;
-      // on continue sur le candidat suivant
+      return await doFetchWithRetries(url, maxRetries);
+    } catch {
+      // on tentera la suivante
     }
   }
-  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr || 'Unknown fetch error'));
+
+  // 3) dernier recours : on résout l’URL via list()
+  const resolved = await resolveViaList(key);
+  if (resolved) {
+    return await doFetchWithRetries(resolved, maxRetries);
+  }
+
+  throw new Error(`Blob not found for "${key}" after retries and list() resolution`);
 }
 
 /** GET + parse JSON */
-export async function getJSON<T = any>(pathOrUrl: string, maxRetries = 6): Promise<T> {
+export async function getJSON<T = any>(pathOrUrl: string, maxRetries = 8): Promise<T> {
   const res = await getFile(pathOrUrl, maxRetries);
   const text = await res.text();
   return JSON.parse(text) as T;
@@ -177,16 +179,29 @@ async function doFetchWithRetries(url: string, maxRetries: number): Promise<Resp
 
       lastError = new Error(`HTTP ${res.status}: ${res.statusText}`);
       if (attempt < maxRetries - 1) {
-        const delay = Math.min(150 * Math.pow(2, attempt), 2000); // petit backoff
+        const delay = Math.min(250 * Math.pow(2, attempt), 2000); // backoff progressif
         await new Promise(r => setTimeout(r, delay));
       }
     } catch (err) {
       lastError = err;
       if (attempt < maxRetries - 1) {
-        const delay = Math.min(150 * Math.pow(2, attempt), 2000);
+        const delay = Math.min(250 * Math.pow(2, attempt), 2000);
         await new Promise(r => setTimeout(r, delay));
       }
     }
   }
   throw lastError instanceof Error ? lastError : new Error(String(lastError || 'Unknown fetch error'));
+}
+
+async function resolveViaList(key: string): Promise<string | null> {
+  try {
+    const out = await list({
+      prefix: key,
+      token: process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_READ_ONLY_TOKEN
+    });
+    const hit = out.blobs?.find(b => b.pathname === key) || null;
+    return hit?.url ?? null;
+  } catch {
+    return null;
+  }
 }
