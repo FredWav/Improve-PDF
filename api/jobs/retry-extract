@@ -1,0 +1,101 @@
+export const dynamic = 'force-dynamic'
+export const maxDuration = 60
+
+import { NextRequest, NextResponse } from 'next/server'
+import { loadJobStatus } from '@/lib/status'
+
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json().catch(() => ({}))
+    const id = body?.id as string
+
+    if (!id) {
+      return NextResponse.json({ error: 'Missing job id' }, { status: 400 })
+    }
+
+    console.log(`Retry extract requested for job ${id}`)
+
+    // Verify job exists
+    const job = await loadJobStatus(id)
+    if (!job) {
+      console.error(`Retry extract: Job ${id} not found`)
+      return NextResponse.json({ error: `Job ${id} not found` }, { status: 404 })
+    }
+
+    // Check if extract is already completed or running
+    if (job.steps.extract === 'COMPLETED') {
+      console.log(`Job ${id} extract already completed`)
+      return NextResponse.json({ 
+        message: 'Extract already completed', 
+        status: 'completed',
+        jobId: id 
+      })
+    }
+
+    if (job.steps.extract === 'RUNNING') {
+      console.log(`Job ${id} extract already running`)
+      return NextResponse.json({ 
+        message: 'Extract already in progress', 
+        status: 'running',
+        jobId: id 
+      })
+    }
+
+    console.log(`Triggering extract retry for job ${id}`)
+
+    // Trigger extract with longer timeout and better error handling
+    try {
+      const extractURL = new URL('/api/jobs/extract', req.url)
+      const extractResponse = await fetch(extractURL.toString(), {
+        method: 'POST',
+        headers: { 
+          'content-type': 'application/json',
+          'user-agent': 'manual-retry-scheduler'
+        },
+        body: JSON.stringify({ id }),
+        cache: 'no-store',
+        // Longer timeout for manual retries
+        signal: AbortSignal.timeout(30000) // 30 seconds
+      })
+
+      if (!extractResponse.ok) {
+        const errorText = await extractResponse.text().catch(() => 'Unknown error')
+        console.error(`Extract retry failed for job ${id}: ${extractResponse.status} - ${errorText}`)
+        
+        return NextResponse.json({
+          error: `Extract failed: ${extractResponse.status}`,
+          detail: errorText,
+          jobId: id,
+          retryable: extractResponse.status >= 500 || extractResponse.status === 404
+        }, { status: extractResponse.status })
+      }
+
+      const result = await extractResponse.json().catch(() => ({}))
+      console.log(`Extract retry successful for job ${id}`)
+
+      return NextResponse.json({
+        message: 'Extract retry triggered successfully',
+        status: 'triggered',
+        jobId: id,
+        result
+      })
+
+    } catch (fetchError: any) {
+      console.error(`Extract retry network error for job ${id}:`, fetchError)
+      
+      return NextResponse.json({
+        error: 'Network error triggering extract',
+        detail: fetchError.message || String(fetchError),
+        jobId: id,
+        retryable: true
+      }, { status: 500 })
+    }
+
+  } catch (error: any) {
+    console.error('Retry extract error:', error)
+    return NextResponse.json({
+      error: 'Internal server error',
+      detail: error?.message || String(error)
+    }, { status: 500 })
+  }
+}
