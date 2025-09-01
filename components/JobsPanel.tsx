@@ -1,100 +1,55 @@
-'use client'
-import Link from 'next/link'
-import { useRecentJobs } from '@/hooks/useRecentJobs'
-import { deriveJobInfo } from '@/lib/ui/jobNarrative'
-import { ProgressBar } from '@/components/ProgressBar'
+"use client";
 
-type AnyJob = Record<string, any>
+import { Job } from "@/types/job";
+import { ProgressSteps } from "./ProgressSteps";
 
-function StatusBadge({ failed, percent }: { failed: boolean; percent: number }) {
-  const base = 'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium'
-  if (failed) return <span className={`${base} bg-red-50 text-red-700 ring-1 ring-red-200`}>Échec</span>
-  if (percent === 100) return <span className={`${base} bg-green-50 text-green-700 ring-1 ring-green-200`}>Terminé</span>
-  return <span className={`${base} bg-blue-50 text-blue-700 ring-1 ring-blue-200`}>En cours</span>
+// 1. On définit le "contrat" (Props) que ce composant accepte.
+interface JobsPanelProps {
+  job: Job | null;
+  error: string | null;
 }
 
-export function JobsPanel() {
-  const { jobs, error } = useRecentJobs()
-
-  // 404 -> on traite comme "aucun job"
-  if (error && String(error).includes('404')) {
-    return (
-      <div className="rounded-lg border border-dashed border-slate-200 bg-white/70 p-6 text-center text-sm text-slate-500">
-        Aucun job récent pour l’instant.
-      </div>
-    )
-  }
-
+// 2. Le composant accepte les props 'job' et 'error'.
+export function JobsPanel({ job, error }: JobsPanelProps) {
+  // Cas 1 : Il y a une erreur
   if (error) {
     return (
-      <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
-        Impossible de charger les jobs récents pour le moment.
+      <div className="p-4 mt-8 border border-red-300 rounded-lg bg-red-50">
+        <h3 className="text-lg font-semibold text-red-800">Impossible de traiter le fichier</h3>
+        <p className="mt-2 text-sm text-red-700">{error}</p>
       </div>
-    )
+    );
   }
 
-  if (!jobs.length) {
+  // Cas 2 : Il n'y a pas encore de job à afficher
+  if (!job) {
     return (
-      <div className="rounded-lg border border-dashed border-slate-200 bg-white/70 p-6 text-center text-sm text-slate-500">
-        Aucun job récent pour l’instant.
+      <div className="p-4 mt-8 border border-gray-200 rounded-lg bg-gray-50">
+        <h3 className="text-lg font-semibold text-gray-800">Traitements récents</h3>
+        <p className="mt-2 text-sm text-gray-600">Aucun job récent pour l'instant.</p>
       </div>
-    )
+    );
   }
 
+  // Cas 3 : On affiche le suivi du job en cours
   return (
-    <div className="space-y-3">
-      {jobs.map((raw: AnyJob) => {
-        const filename = raw.filename ?? raw.fileName ?? ''
-        const job: AnyJob = { ...raw, filename }
+    <div className="p-4 mt-8 border border-gray-200 rounded-lg bg-gray-50">
+      <div className="flex justify-between items-center">
+        <h3 className="text-lg font-semibold text-gray-800">Suivi du traitement</h3>
+        <span className={`px-2.5 py-0.5 text-xs font-medium rounded-full ${
+          job.status === 'completed' ? 'bg-green-100 text-green-800' :
+          job.status === 'failed' ? 'bg-red-100 text-red-800' :
+          'bg-blue-100 text-blue-800'
+        }`}>
+          {job.status}
+        </span>
+      </div>
+      <p className="mt-1 text-sm text-gray-600 truncate" title={job.filename}>Fichier : {job.filename}</p>
 
-        const info = deriveJobInfo(job as any) as Partial<{
-          percent: number
-          narrative: string
-          completedSteps: number
-          totalSteps: number
-          failed: boolean
-        }>
-
-        const percent = typeof info.percent === 'number' ? info.percent : 0
-        const narrative = info.narrative ?? ''
-        const completed = typeof info.completedSteps === 'number' ? info.completedSteps : 0
-        const total = typeof info.totalSteps === 'number' ? info.totalSteps : 5
-        const failed = Boolean(info.failed)
-
-        return (
-          <div
-            key={job.id}
-            className="rounded-xl border border-slate-200 bg-white/80 backdrop-blur-sm shadow-sm ring-1 ring-black/5 p-4"
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <div className="font-medium text-sm text-slate-800 truncate max-w-[60vw]">
-                    {filename || job.id}
-                  </div>
-                  <StatusBadge failed={failed} percent={percent} />
-                </div>
-                {narrative && (
-                  <p className="mt-1 text-[11px] text-slate-600 line-clamp-2">{narrative}</p>
-                )}
-              </div>
-              <Link
-                href={`/ebook/${job.id}`}
-                className="text-xs font-medium text-blue-700 hover:text-blue-800 hover:underline shrink-0"
-              >
-                Ouvrir
-              </Link>
-            </div>
-
-            <div className="mt-3">
-              <ProgressBar value={percent} />
-              <div className="mt-1 text-[11px] text-slate-400">
-                {completed}/{total} étapes
-              </div>
-            </div>
-          </div>
-        )
-      })}
+      <div className="mt-4">
+        {/* On suppose ici que vous avez un composant ProgressSteps qui accepte une liste d'étapes */}
+        <ProgressSteps steps={job.steps} />
+      </div>
     </div>
-  )
+  );
 }
