@@ -1,10 +1,8 @@
 "use client";
 
 import React from 'react';
-// LA CORRECTION EST ICI : On importe les types depuis le nouveau fichier centralisé '@/types/job'
 import type { Job, JobStatus, StepStatus } from '@/types/job';
 
-// Un petit helper pour associer les statuts à des couleurs
 const statusClasses: Record<JobStatus | StepStatus, string> = {
   pending: "text-gray-500 bg-gray-100",
   running: "text-blue-700 bg-blue-100 animate-pulse",
@@ -12,14 +10,16 @@ const statusClasses: Record<JobStatus | StepStatus, string> = {
   failed: "text-red-700 bg-red-100",
 };
 
+// On met à jour le contrat (Props) pour accepter les nouvelles propriétés
 interface JobVerboseStatusProps {
   job: Job | null;
+  retryAttempted?: boolean;
+  onManualRetry?: () => void;
 }
 
-export function JobVerboseStatus({ job }: JobVerboseStatusProps) {
-  // Ne rien afficher si aucun job n'est actif
+export function JobVerboseStatus({ job, retryAttempted, onManualRetry }: JobVerboseStatusProps) {
   if (!job) {
-    return null;
+    return null; 
   }
 
   return (
@@ -40,6 +40,20 @@ export function JobVerboseStatus({ job }: JobVerboseStatusProps) {
           </li>
         ))}
       </ul>
+
+      {/* On ajoute l'affichage du bouton "Réessayer" si nécessaire */}
+      {job.status === 'failed' && onManualRetry && (
+        <div className="mt-4 pt-4 border-t">
+          <p className="text-sm text-red-700 mb-2">Le traitement a échoué.</p>
+          <button
+            onClick={onManualRetry}
+            disabled={retryAttempted}
+            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+          >
+            {retryAttempted ? 'Nouvelle tentative...' : 'Réessayer'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
