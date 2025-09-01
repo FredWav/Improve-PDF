@@ -1,14 +1,11 @@
-import { Inngest } from 'inngest';
 import { serve } from 'inngest/next';
-import { processEbook } from '../../../inngest/functions'; // On va créer ce fichier juste après
+import { inngest } from '@/inngest/client';
+import { processEbook } from '@/inngest/functions';
 
-// Crée un client Inngest
-export const inngest = new Inngest({ id: 'Improve-PDF' });
-
-// 'serve' expose les fonctions d'Inngest à travers cette API
+// On n'exporte que les méthodes GET, POST, PUT, ce qui est autorisé par Next.js
 export const { GET, POST, PUT } = serve({
   client: inngest,
   functions: [
-    processEbook, // La fonction qui va faire le travail
+    processEbook,
   ],
 });
