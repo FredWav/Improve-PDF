@@ -8,7 +8,9 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash"});
 
 export const processEbook = inngest.createFunction(
-  { id: 'process-ebook-job', timeout: '10m' }, // Augmente le temps maximum à 10 minutes
+  // --- LA CORRECTION EST ICI ---
+  // C'est 'timeouts' au pluriel, avec un objet { run: '10m' } à l'intérieur
+  { id: 'process-ebook-job', timeouts: { run: '10m' } },
   { event: 'app/job.created' },
   async ({ event, step }) => {
     const { jobId } = event.data;
@@ -28,14 +30,8 @@ export const processEbook = inngest.createFunction(
     const textContent = await step.run('extract-text-from-pdf', async () => {
       const response = await fetch(job.inputFileUrl!);
       const arrayBuffer = await response.arrayBuffer();
-      
-      // --- LA CORRECTION EST ICI ---
-      // On utilise notre "adaptateur" pour convertir le format
       const buffer = Buffer.from(arrayBuffer);
-      
-      // Maintenant, pdf() reçoit le format 'Buffer' qu'il attend
       const data = await pdf(buffer);
-      
       await updateJob(jobId, 'running', { name: 'Extraction du texte', status: 'completed' });
       return data.text;
     });
