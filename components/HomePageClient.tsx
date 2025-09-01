@@ -5,7 +5,7 @@ import { UploadZone } from './UploadZone';
 import { JobsPanel } from './JobsPanel';
 import { Job } from '@/types/job';
 
-// On utilise bien "export function" (exportation nommée)
+// La fonction est bien exportée avec "export function" (exportation nommée)
 export function HomePageClient() {
   const [job, setJob] = useState<Job | null>(null);
   const [error, setError] = useState<string | null>(null);
