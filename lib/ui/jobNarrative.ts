@@ -1,24 +1,19 @@
-import type { Job } from '@/types/job';
+import type { Job, JobStep } from '@/types/job';
 
-// Le "contrat" final, qui inclut toutes les propriétés que votre code semble utiliser
+// Le "contrat" final, qui inclut TOUTES les propriétés
 export interface DerivedJobInfo {
-  // Propriétés de progression
-  percent: number; // Renommé 'progress' en 'percent' pour correspondre à votre code
+  percent: number;
   totalSteps: number;
   completedSteps: number;
-  
-  // Statuts booléens pour simplifier la logique de l'interface
-  isProcessing: boolean; // true si 'pending' ou 'running'
-  isTerminal: boolean;   // true si 'completed' ou 'failed'
-  canRetry: boolean;     // true si 'failed'
+  isProcessing: boolean;
+  isTerminal: boolean;
+  canRetry: boolean;
   failed: boolean;
-  completed: boolean;    // Ajouté pour correspondre à votre code
-
-  // Texte descriptif pour l'utilisateur
+  completed: boolean;
   narrative: string;
+  activeStepKey: string | null; // La dernière propriété manquante
 }
 
-// Valeurs par défaut pour éviter les erreurs si le job n'est pas encore chargé
 const defaultInfo: DerivedJobInfo = {
   totalSteps: 0,
   completedSteps: 0,
@@ -29,9 +24,9 @@ const defaultInfo: DerivedJobInfo = {
   canRetry: false,
   failed: false,
   completed: false,
+  activeStepKey: null,
 };
 
-// La fonction qui transforme l'objet Job brut en informations utiles pour l'UI
 export function deriveJobInfo(job: Job | null): DerivedJobInfo {
   if (!job) {
     return defaultInfo;
@@ -39,7 +34,6 @@ export function deriveJobInfo(job: Job | null): DerivedJobInfo {
 
   const totalSteps = job.steps.length;
   const completedSteps = job.steps.filter(s => s.status === 'completed').length;
-  
   const percent = totalSteps > 0 ? Math.round((completedSteps / totalSteps) * 100) : 0;
 
   const isProcessing = job.status === 'pending' || job.status === 'running';
@@ -48,10 +42,13 @@ export function deriveJobInfo(job: Job | null): DerivedJobInfo {
   const completed = job.status === 'completed';
   const canRetry = failed;
 
+  // On calcule la dernière propriété
+  const currentStep = job.steps.find(s => s.status === 'running');
+  const activeStepKey = currentStep ? currentStep.name : null;
+
   let narrative = 'Le traitement est en attente de démarrage.';
   if (job.status === 'running') {
-    const currentStep = job.steps.find(s => s.status === 'running');
-    narrative = currentStep ? `Étape en cours : ${currentStep.name}...` : 'Démarrage du traitement...';
+    narrative = activeStepKey ? `Étape en cours : ${activeStepKey}...` : 'Démarrage du traitement...';
   } else if (completed) {
     narrative = 'Le traitement est terminé avec succès !';
   } else if (failed) {
@@ -68,5 +65,6 @@ export function deriveJobInfo(job: Job | null): DerivedJobInfo {
     canRetry,
     failed,
     completed,
+    activeStepKey, // On retourne la nouvelle propriété
   };
 }
