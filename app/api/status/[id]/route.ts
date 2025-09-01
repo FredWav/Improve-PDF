@@ -1,38 +1,43 @@
-// app/api/status/[id]/route.ts
-import { NextResponse } from 'next/server'
-import { getJSON } from '@/lib/blob'
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
-export const runtime = 'nodejs'
-export const dynamic = 'force-dynamic'
-export const revalidate = 0
+import { NextResponse } from 'next/server';
+import { loadJobStatus } from '@/lib/status';
 
-type RouteParams = { params: { id: string } }
+type Params = { params: { id?: string } };
 
-/**
- * GET /api/status/:id
- * Retourne le manifest JSON stocké dans Blob : jobs/<id>/manifest.json
- * 200 => JSON du manifest
- * 404 => manifest introuvable
- */
-export async function GET(_req: Request, { params }: RouteParams) {
-  const id = params?.id
+const noStoreHeaders = {
+  'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+  'Pragma': 'no-cache',
+  'Expires': '0',
+  'CDN-Cache-Control': 'no-store',
+  'Vercel-CDN-Cache-Control': 'no-store',
+};
+
+export async function GET(_req: Request, { params }: Params) {
+  const id = params?.id;
   if (!id) {
-    return NextResponse.json({ error: 'Missing id' }, { status: 400 })
+    return NextResponse.json(
+      { error: 'Missing id' },
+      { status: 400, headers: noStoreHeaders }
+    );
   }
 
-  const key = `jobs/${id}/manifest.json`
-
   try {
-    const manifest = await getJSON<any>(key, 8) // retries gérés dans lib/blob.ts
-    if (manifest && typeof manifest === 'object') {
-      ;(manifest as any).id = id
+    const job = await loadJobStatus(id);
+    if (!job) {
+      // Job pas encore prêt : on renvoie 404 (comportement attendu par le front existant)
+      return NextResponse.json(
+        { error: 'Job not found' },
+        { status: 404, headers: noStoreHeaders }
+      );
     }
-    return NextResponse.json(manifest, { status: 200 })
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err)
-    if (message.includes('404') || /not found/i.test(message)) {
-      return NextResponse.json({ error: 'Job not found', id }, { status: 404 })
-    }
-    return NextResponse.json({ error: 'Failed to load job', id, message }, { status: 500 })
+    // OK : on renvoie le manifest complet
+    return NextResponse.json(job, { status: 200, headers: noStoreHeaders });
+  } catch (e: any) {
+    return NextResponse.json(
+      { error: e?.message || 'Failed to load job status' },
+      { status: 500, headers: noStoreHeaders }
+    );
   }
 }
