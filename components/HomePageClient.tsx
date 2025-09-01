@@ -1,78 +1,90 @@
-'use client'
+"use client";
 
-import React, { useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { UploadZone } from '@/components/UploadZone'
-import { JobsPanel } from '@/components/JobsPanel'
+import { useState, useEffect, useCallback } from 'react';
+import { UploadZone } from './UploadZone';
+import { JobsPanel } from './JobsPanel';
+import { Job } from '@/types/job'; // Assurez-vous que le chemin vers votre type Job est correct
 
-/**
- * Page d'accueil côté client.
- * On garde les mêmes exports et on câble correctement l'upload -> enqueue -> redirection.
- */
 export function HomePageClient() {
-  const router = useRouter()
-  const [submitting, setSubmitting] = useState(false)
-  const [enqueueError, setEnqueueError] = useState<string | null>(null)
+  const [job, setJob] = useState<Job | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
 
-  async function handleUploaded(info: any) {
-    // info vient de /api/upload et contient au minimum { url, pathname, size, uploadedAt }
-    const fileKey = info?.pathname || info?.fileId || info?.url
-    const filename =
-      info?.filename || info?.name || (typeof info?.pathname === 'string' ? info.pathname.split('/').pop() : 'document.pdf')
+  // Fonction pour gérer l'envoi du fichier
+  const handleUpload = useCallback(async (file: File) => {
+    setIsLoading(true);
+    setError(null);
+    setJob(null);
+
+    // 1. On prépare le fichier pour l'envoi
+    const formData = new FormData();
+    formData.append('file', file);
 
     try {
-      setSubmitting(true)
-      setEnqueueError(null)
-
-      const res = await fetch('/api/enqueue', {
+      // 2. On envoie le fichier à l'API
+      //    LA CORRECTION EST ICI : on ne met PAS de "headers" manuellement.
+      //    Le navigateur s'en occupe pour nous, c'est ce qui résout votre erreur.
+      const response = await fetch('/api/enqueue', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ fileKey, filename })
-      })
+        body: formData,
+      });
 
-      const json = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        throw new Error(json?.error || 'Impossible de démarrer le traitement')
+      if (!response.ok) {
+        // Si le serveur renvoie une erreur (ex: 500)
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Impossible de démarrer le traitement.');
       }
 
-      const id = json?.id || json?.jobId
-      if (!id) {
-        throw new Error('Réponse invalide du serveur (id manquant)')
+      const { jobId } = await response.json();
+      
+      // 3. On récupère immédiatement le statut du nouveau job
+      const initialJobStatus = await fetch(`/api/status/${jobId}`);
+      if(initialJobStatus.ok) {
+        const jobData = await initialJobStatus.json();
+        setJob(jobData);
+      } else {
+         throw new Error('Le job a été créé, mais impossible de récupérer son statut.');
       }
 
-      router.push(`/ebook/${id}`)
-    } catch (e: any) {
-      setEnqueueError(e?.message || 'Erreur inconnue')
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Une erreur inconnue est survenue.';
+      console.error(errorMessage);
+      setError(errorMessage);
     } finally {
-      setSubmitting(false)
+      setIsLoading(false);
     }
-  }
+  }, []);
+
+  // 4. On vérifie le statut du job toutes les 2 secondes s'il est en cours
+  useEffect(() => {
+    if (job?.status === 'running' || job?.status === 'pending') {
+      const intervalId = setInterval(async () => {
+        try {
+          const response = await fetch(`/api/status/${job.id}`);
+          if (response.ok) {
+            const updatedJob = await response.json();
+            setJob(updatedJob);
+            // Si le job est terminé ou a échoué, on arrête de vérifier
+            if (updatedJob.status === 'completed' || updatedJob.status === 'failed') {
+              clearInterval(intervalId);
+            }
+          }
+        } catch (err) {
+          console.error('Erreur lors de la récupération du statut du job:', err);
+          setError('Impossible de mettre à jour le statut du job.');
+          clearInterval(intervalId);
+        }
+      }, 2000);
+
+      // Nettoyage de l'intervalle si le composant est démonté
+      return () => clearInterval(intervalId);
+    }
+  }, [job]);
 
   return (
-    <div className="container-page py-10">
-      <section className="mb-10">
-        <h1 className="text-2xl font-semibold text-slate-800 mb-2">
-          Améliorer un PDF
-        </h1>
-        <p className="text-slate-600 mb-6">
-          Dépose ton PDF ci-dessous. On l’analyse, on le nettoie, on illustre et on te propose les exports (Markdown, HTML, EPUB, PDF).
-        </p>
-
-        <UploadZone disabled={submitting} onUploaded={handleUploaded} />
-
-        {enqueueError && (
-          <div className="mt-4 text-sm rounded-md border border-red-200 bg-red-50 px-3 py-2 text-red-700">
-            {enqueueError}
-          </div>
-        )}
-      </section>
-
-      <section>
-        <h3 className="text-base font-semibold text-slate-800 mb-3">Traitements récents</h3>
-        <JobsPanel />
-      </section>
+    <div className="space-y-8">
+      <UploadZone onFileSelect={handleUpload} isLoading={isLoading} />
+      <JobsPanel job={job} error={error} />
     </div>
-  )
+  );
 }
-
-export default HomePageClient
