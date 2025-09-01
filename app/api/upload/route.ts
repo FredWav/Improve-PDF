@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { put } from '@vercel/blob';
-import { createJob } from '../../lib/jobs';
+// CHEMIN CORRIGÉ ICI : on utilise l'alias '@/' qui part de la racine du projet.
+import { createJob } from '@/lib/jobs';
 import { nanoid } from 'nanoid';
-// Plus tard, nous ajouterons l'import pour Inngest ici
+// CHEMIN CORRIGÉ ICI AUSSI pour être cohérent.
+import { inngest } from '@/inngest/client';
 
 export async function POST(request: NextRequest) {
   const formData = await request.formData();
@@ -15,12 +17,16 @@ export async function POST(request: NextRequest) {
   try {
     const blob = await put(file.name, file, { access: 'public' });
     const jobId = nanoid();
-    await createJob(jobId, file.name, blob.url);
+    const job = await createJob(jobId, file.name, blob.url);
 
-    // TODO: Déclencher le worker Inngest ici
-    // await inngest.send({ name: 'app/job.created', data: { jobId } });
+    // On envoie un événement à Inngest pour lui dire de commencer le travail.
+    await inngest.send({
+      name: 'app/job.created',
+      data: { jobId: job.id },
+    });
 
-    return NextResponse.json({ jobId }, { status: 201 });
+    return NextResponse.json({ jobId: job.id }, { status: 201 });
+
   } catch (error) {
     console.error('Erreur durant le téléversement:', error);
     return NextResponse.json({ error: 'Échec du traitement du fichier.' }, { status: 500 });
