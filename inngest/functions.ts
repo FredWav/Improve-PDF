@@ -27,8 +27,15 @@ export const processEbook = inngest.createFunction(
 
     const textContent = await step.run('extract-text-from-pdf', async () => {
       const response = await fetch(job.inputFileUrl!);
-      const buffer = await response.arrayBuffer();
+      const arrayBuffer = await response.arrayBuffer();
+      
+      // --- LA CORRECTION EST ICI ---
+      // On utilise notre "adaptateur" pour convertir le format
+      const buffer = Buffer.from(arrayBuffer);
+      
+      // Maintenant, pdf() reçoit le format 'Buffer' qu'il attend
       const data = await pdf(buffer);
+      
       await updateJob(jobId, 'running', { name: 'Extraction du texte', status: 'completed' });
       return data.text;
     });
@@ -38,7 +45,6 @@ export const processEbook = inngest.createFunction(
     });
 
     const rewrittenText = await step.run('rewrite-text-with-gemini', async () => {
-      // Vérifie si le texte est assez long pour être traité
       if (!textContent || textContent.length < 50) {
         return "(Contenu trop court pour être réécrit)";
       }
@@ -51,7 +57,6 @@ export const processEbook = inngest.createFunction(
         return response.text();
       } catch (error) {
         console.error("Erreur de l'API Gemini:", error);
-        // En cas d'erreur de l'API, on renvoie le texte original pour ne pas bloquer le processus
         return `(Erreur de réécriture) ${textContent}`;
       }
     });
