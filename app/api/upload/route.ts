@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { put } from '@vercel/blob';
-// CHEMIN CORRIGÉ ICI : on utilise l'alias '@/' qui part de la racine du projet.
 import { createJob } from '@/lib/jobs';
 import { nanoid } from 'nanoid';
-// CHEMIN CORRIGÉ ICI AUSSI pour être cohérent.
 import { inngest } from '@/inngest/client';
 
 export async function POST(request: NextRequest) {
@@ -19,7 +17,6 @@ export async function POST(request: NextRequest) {
     const jobId = nanoid();
     const job = await createJob(jobId, file.name, blob.url);
 
-    // On envoie un événement à Inngest pour lui dire de commencer le travail.
     await inngest.send({
       name: 'app/job.created',
       data: { jobId: job.id },
