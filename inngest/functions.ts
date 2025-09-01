@@ -9,8 +9,8 @@ const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash"});
 
 export const processEbook = inngest.createFunction(
   // --- LA CORRECTION EST ICI ---
-  // C'est 'timeouts' au pluriel, avec un objet { run: '10m' } à l'intérieur
-  { id: 'process-ebook-job', timeouts: { run: '10m' } },
+  // On supprime la configuration du timeout pour utiliser la valeur par défaut et résoudre l'erreur.
+  { id: 'process-ebook-job' },
   { event: 'app/job.created' },
   async ({ event, step }) => {
     const { jobId } = event.data;
