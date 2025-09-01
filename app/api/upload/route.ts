@@ -13,9 +13,17 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const blob = await put(file.name, file, { access: 'public' });
+    // --- LA CORRECTION EST ICI ---
+    // On ajoute l'option 'addRandomSuffix: true' pour s'assurer que chaque
+    // nom de fichier est unique et éviter les conflits.
+    const blob = await put(file.name, file, {
+      access: 'public',
+      addRandomSuffix: true,
+    });
+
     const jobId = nanoid();
-    const job = await createJob(jobId, file.name, blob.url);
+    // On utilise le nouveau nom de fichier unique (blob.pathname) renvoyé par Vercel Blob
+    const job = await createJob(jobId, blob.pathname, blob.url);
 
     await inngest.send({
       name: 'app/job.created',
@@ -26,6 +34,8 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('Erreur durant le téléversement:', error);
-    return NextResponse.json({ error: 'Échec du traitement du fichier.' }, { status: 500 });
+    // On peut renvoyer un message d'erreur plus précis si on le souhaite
+    const errorMessage = error instanceof Error ? error.message : 'Une erreur inconnue est survenue.';
+    return NextResponse.json({ error: `Échec du traitement du fichier: ${errorMessage}` }, { status: 500 });
   }
 }
