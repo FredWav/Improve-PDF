@@ -1,4 +1,3 @@
-// LA CORRECTION EST ICI : On importe les types depuis le nouveau fichier centralisé.
 import type { JobStatus, StepStatus, JobStep, Job } from '@/types/job';
 
 export interface DerivedJobInfo {
@@ -9,6 +8,7 @@ export interface DerivedJobInfo {
   isProcessing: boolean;
   isTerminal: boolean;
   canRetry: boolean;
+  failed: boolean; // On ajoute la propriété manquante
 }
 
 const defaultInfo: DerivedJobInfo = {
@@ -19,6 +19,7 @@ const defaultInfo: DerivedJobInfo = {
   isProcessing: false,
   isTerminal: false,
   canRetry: false,
+  failed: false, // Valeur par défaut
 };
 
 export function deriveJobInfo(job: Job | null): DerivedJobInfo {
@@ -34,6 +35,7 @@ export function deriveJobInfo(job: Job | null): DerivedJobInfo {
   const isProcessing = job.status === 'pending' || job.status === 'running';
   const isTerminal = job.status === 'completed' || job.status === 'failed';
   const canRetry = job.status === 'failed';
+  const failed = job.status === 'failed'; // On calcule la nouvelle propriété
 
   let narrative = 'Le traitement est en attente de démarrage.';
   if (job.status === 'running') {
@@ -53,5 +55,6 @@ export function deriveJobInfo(job: Job | null): DerivedJobInfo {
     isProcessing,
     isTerminal,
     canRetry,
+    failed, // On retourne la nouvelle propriété
   };
 }
