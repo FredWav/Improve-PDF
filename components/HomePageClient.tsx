@@ -3,28 +3,25 @@
 import { useState, useEffect, useCallback } from 'react';
 import { UploadZone } from './UploadZone';
 import { JobsPanel } from './JobsPanel';
-import { Job } from '@/types/job'; // Assurez-vous que le chemin vers votre type Job est correct
+import { Job } from '@/types/job';
 
+// On utilise "export function" (exportation nommée)
 export function HomePageClient() {
   const [job, setJob] = useState<Job | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
-  // Fonction pour gérer l'envoi du fichier
   const handleUpload = useCallback(async (file: File) => {
     setIsLoading(true);
     setError(null);
     setJob(null);
 
-    // 1. On prépare le fichier pour l'envoi dans un objet FormData
     const formData = new FormData();
     formData.append('file', file);
 
     try {
-      // 2. On envoie le fichier à l'API.
-      // LA CORRECTION EST ICI : on ne met PAS de "headers" manuellement.
-      // Le navigateur s'en occupe pour nous, c'est ce qui résout votre erreur.
-      const response = await fetch('/api/enqueue', {
+      // On envoie le fichier SANS header 'Content-Type' manuel
+      const response = await fetch('/api/upload', {
         method: 'POST',
         body: formData,
       });
@@ -36,7 +33,6 @@ export function HomePageClient() {
 
       const { jobId } = await response.json();
       
-      // 3. On récupère immédiatement le statut du nouveau job
       const initialJobStatus = await fetch(`/api/status/${jobId}`);
       if(initialJobStatus.ok) {
         const jobData = await initialJobStatus.json();
@@ -54,7 +50,7 @@ export function HomePageClient() {
     }
   }, []);
 
-  // 4. On vérifie le statut du job toutes les 2 secondes s'il est en cours
+  // On vérifie le statut du job toutes les 2 secondes
   useEffect(() => {
     if (job?.status === 'running' || job?.status === 'pending') {
       const intervalId = setInterval(async () => {
@@ -67,7 +63,6 @@ export function HomePageClient() {
               clearInterval(intervalId);
             }
           } else {
-            // Si le statut renvoie une erreur (ex: 404), on arrête de vérifier.
             setError('Impossible de récupérer le statut du job.');
             clearInterval(intervalId);
           }
@@ -77,7 +72,6 @@ export function HomePageClient() {
         }
       }, 2000);
 
-      // Nettoyage de l'intervalle quand le composant n'est plus affiché
       return () => clearInterval(intervalId);
     }
   }, [job]);
