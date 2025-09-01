@@ -1,162 +1,129 @@
 export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 export const maxDuration = 60;
 
-import { NextResponse } from 'next/server'
+import { NextResponse } from 'next/server';
 import {
   generateJobId,
   createJobStatus,
   saveJobStatus,
   loadJobStatus,
-} from '@/lib/status'
-import { jobCreationQueue } from '@/lib/queue'
+  addJobLog,
+} from '@/lib/status';
 
-// Simplified job creation without problematic index
-async function createJobInQueue(fileKey: string, filename: string): Promise<string> {
-  return jobCreationQueue.add(async () => {
-    const id = generateJobId()
-    console.log(`[Queue] Creating job ${id} with fileKey: ${fileKey}`)
-    
-    try {
-      const status = await createJobStatus(id, filename, fileKey)
-      console.log(`[Queue] Job status created successfully for ${id}`)
-      
-      // Add initial log
-      status.logs.push({
-        timestamp: new Date().toISOString(),
-        level: 'info',
-        message: `Job enqueued with file: ${fileKey}`
-      })
-      
-      await saveJobStatus(status)
-      console.log(`[Queue] Job status saved successfully for ${id}`)
-      
-      // No index to update - jobs are discovered via blob listing
-      console.log(`[Queue] Job ${id} ready for processing (no index update needed)`)
-      
-      return id
-    } catch (error) {
-      console.error(`[Queue] Failed to create job ${id}:`, error)
-      throw error
-    }
-  })
-}
-
+/**
+ * POST /api/enqueue
+ * body: { fileKey: string, filename: string }
+ * - crée le job + manifest
+ * - vérifie que le manifest est lisible
+ * - déclenche /api/jobs/extract **sans timeout artificiel**
+ * - renvoie { jobId }
+ */
 export async function POST(req: Request) {
   try {
-    if (!process.env.BLOB_READ_WRITE_TOKEN) {
-      return NextResponse.json({ 
-        error: 'Server missing BLOB_READ_WRITE_TOKEN (configure Vercel Blob in Project Settings)',
-        step: 'configuration_check'
-      }, { status: 500 });
+    const { fileKey, filename } = await req.json().catch(() => ({} as any));
+    if (!fileKey || !filename) {
+      return NextResponse.json(
+        { error: 'fileKey and filename are required' },
+        { status: 400 }
+      );
     }
 
-    const ct = req.headers.get('content-type') || ''
-    let body: any = {}
+    // 1) Crée un id et un manifest initial
+    const id = generateJobId();
+    console.log(`[Queue] Creating job ${id} with fileKey: ${fileKey}`);
 
-    if (ct.includes('application/json')) {
-      body = await req.json()
-    } else if (ct.includes('multipart/form-data') || ct.includes('application/x-www-form-urlencoded')) {
-      const form = await req.formData()
-      body = Object.fromEntries(form as any)
-    } else {
-      try {
-        body = await req.json() 
-      } catch { 
-        body = {} 
-      }
-    }
+    await createJobStatus(id, {
+      id,
+      filename,
+      inputFile: fileKey,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      steps: {
+        extract: 'PENDING',
+        normalize: 'PENDING',
+        rewrite: 'PENDING',
+        images: 'PENDING',
+        render: 'PENDING',
+      },
+      outputs: {},
+      logs: [],
+    });
 
-    const fileKey = body.fileKey || body.inputFile || body.key || body.url || body.pathname || body.path
-    const filename = body.filename || body.name || 'document.pdf'
+    await saveJobStatus({
+      id,
+      filename,
+      inputFile: fileKey,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      steps: {
+        extract: 'PENDING',
+        normalize: 'PENDING',
+        rewrite: 'PENDING',
+        images: 'PENDING',
+        render: 'PENDING',
+      },
+      outputs: {},
+      logs: [],
+    });
 
-    if (!fileKey) {
-      return NextResponse.json({ 
-        error: 'Missing file key/url',
-        step: 'validation'
-      }, { status: 400 })
-    }
-
-    console.log(`Enqueue request received - fileKey: ${fileKey}, queue length: ${jobCreationQueue.length}`)
-
-    // Create job through sequential queue (no more index conflicts!)
-    let jobId: string
-    try {
-      jobId = await createJobInQueue(fileKey, filename)
-      console.log(`Job creation completed: ${jobId}`)
-    } catch (statusError) {
-      console.error(`Failed to create job:`, statusError)
-      return NextResponse.json({ 
-        error: 'Failed to initialize job',
-        detail: statusError instanceof Error ? statusError.message : String(statusError),
-        step: 'job_creation'
-      }, { status: 500 })
-    }
-
-    // Wait a moment to ensure blob consistency
-    await new Promise(resolve => setTimeout(resolve, 300))
-
-    // Verify job is readable before proceeding
-    let job
-    try {
-      job = await loadJobStatus(jobId)
-      if (!job) {
-        throw new Error('Job not found after creation')
-      }
-      console.log(`Job ${jobId} verified as readable`)
-    } catch (verifyError) {
-      console.error(`Job ${jobId} not readable after creation:`, verifyError)
-      return NextResponse.json({
-        error: 'Job created but not immediately readable - please retry in a moment',
-        jobId,
-        retryable: true,
-        step: 'verification'
-      }, { status: 202 }) // 202 Accepted - processing but not complete
-    }
-
-    // Optional: Try to trigger extract (non-blocking)
-    let extractTriggered = false
-    try {
-      const kickoffURL = new URL('/api/jobs/extract', req.url)
-      console.log(`Attempting to trigger extract for job ${jobId}`)
-      
-      const extractResponse = await fetch(kickoffURL.toString(), {
-        method: 'POST',
-        headers: { 
-          'content-type': 'application/json',
-          'user-agent': 'auto-trigger-scheduler'
+    // 2) Vérifie qu'on peut relire le manifest immédiatement
+    const readable = await loadJobStatus(id);
+    if (!readable) {
+      console.warn(`[Queue] Manifest not immediately readable for ${id}`);
+      return NextResponse.json(
+        {
+          jobId: id,
+          status: 'accepted',
+          note: 'Job created; manifest not yet readable — retry status soon',
         },
-        body: JSON.stringify({ id: jobId }),
-        cache: 'no-store',
-        signal: AbortSignal.timeout(8000) // 8 second timeout
-      })
-      
-      if (extractResponse.ok) {
-        console.log(`Extract auto-triggered successfully for job ${jobId}`)
-        extractTriggered = true
-      } else {
-        const errorText = await extractResponse.text().catch(() => 'Unknown error')
-        console.warn(`Extract auto-trigger failed for ${jobId}: ${extractResponse.status} - ${errorText}`)
-      }
-    } catch (kickoffError) {
-      console.warn(`Extract auto-trigger error for ${jobId}:`, kickoffError)
+        { status: 202 }
+      );
     }
 
-    return NextResponse.json({ 
-      id: jobId,
-      extractTriggered,
-      queueLength: jobCreationQueue.length,
-      message: extractTriggered 
-        ? 'Job created and extract started'
-        : 'Job created successfully - extract can be triggered manually if needed',
-      step: 'completed'
-    }, { status: 200 })
-    
+    // 3) Déclenche EXTRACT **sans AbortSignal.timeout** (cause des TimeoutError)
+    try {
+      const nextURL = new URL('/api/jobs/extract', req.url);
+      console.log(`Attempting to trigger extract for job ${id}`);
+
+      // On attend la réponse (maxDuration=60 côté route suffit), pas de timeout custom
+      const resp = await fetch(nextURL.toString(), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id }),
+        cache: 'no-store',
+      });
+
+      if (!resp.ok) {
+        const msg = await resp.text().catch(() => resp.statusText);
+        console.warn(`Extract kickoff returned ${resp.status}: ${msg}`);
+        await addJobLog(id, 'warn', `Extract kickoff returned ${resp.status}: ${msg}`);
+      } else {
+        await addJobLog(id, 'info', 'Extract kickoff OK');
+      }
+    } catch (e: any) {
+      console.warn(`Extract auto-trigger error for ${id}: ${e?.message || e}`);
+      // On loggue en warn mais on **ne bloque pas** l’enqueue
+      try {
+        await addJobLog(id, 'warn', `Extract auto-trigger error: ${e?.message || String(e)}`);
+      } catch {}
+    }
+
+    return NextResponse.json(
+      {
+        jobId: id,
+        status: 'ok',
+        message: 'Job created; extract triggered',
+      },
+      { status: 200 }
+    );
   } catch (err: any) {
-    console.error('Enqueue error:', err)
-    return NextResponse.json({ 
-      error: err?.message || 'Internal error',
-      detail: err?.stack ? err.stack.slice(0, 200) : undefined,
-      step: 'internal_error'
-    }, { status: 500 })
+    console.error('Enqueue error:', err);
+    return NextResponse.json(
+      {
+        error: err?.message || 'Internal error',
+      },
+      { status: 500 }
+    );
   }
 }
