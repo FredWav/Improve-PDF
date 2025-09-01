@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getJob } from '../../../../lib/jobs'; // chemin mis à jour pour la nouvelle structure
+import { getJob } from '../../../../lib/jobs';
 
 type StatusRouteParams = {
   params: {
