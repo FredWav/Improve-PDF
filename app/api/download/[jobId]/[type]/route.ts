@@ -1,103 +1,51 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { loadJobStatus } from '@/lib/status'
-import { getFile } from '@/lib/blob'
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
-const TYPE_MAP: Record<string, keyof import('@/lib/status').JobOutputs> = {
-  'raw-text': 'rawText',
-  'normalized-text': 'normalizedText',
-  'rewritten-text': 'rewrittenText',
-  'rendered-html': 'renderedHtml',
-  'rendered-markdown': 'renderedMarkdown',
-  'pdf-output': 'pdfOutput',
-  html: 'html',
-  pdf: 'pdf',
-  epub: 'epub',
-  md: 'md',
-  report: 'report',
-  // 👇 nouveaux types optionnels pour inspection/QA
-  'images-manifest': 'imagesManifest',
-  'rewrite-map': 'rewriteMap',
-  toc: 'toc'
-}
+import { NextResponse } from 'next/server';
+import { loadJobStatus } from '@/lib/status';
+import { getJSON } from '@/lib/blob';
 
-export async function GET(
-  _req: NextRequest,
-  { params }: { params: { jobId: string; type: string } }
-) {
-  const { jobId, type } = params
-  const key = TYPE_MAP[type]
-  if (!key) {
-    return NextResponse.json({ error: 'Invalid download type' }, { status: 400 })
+type Params = { params: { id?: string } };
+
+const noStore = {
+  'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+  Pragma: 'no-cache',
+  Expires: '0',
+  'CDN-Cache-Control': 'no-store',
+  'Vercel-CDN-Cache-Control': 'no-store',
+};
+
+export async function GET(_req: Request, { params }: Params) {
+  const id = params?.id;
+  if (!id) {
+    return NextResponse.json({ error: 'Missing id' }, { status: 400, headers: noStore });
   }
 
   try {
-    const status = await loadJobStatus(jobId)
-    if (!status) {
-      return NextResponse.json({ error: 'Job not found' }, { status: 404 })
+    // Lecture robuste via lib/status (préférée)
+    const job = await loadJobStatus(id);
+    if (job) {
+      (job as any).id = id;
+      return NextResponse.json(job, { status: 200, headers: noStore });
     }
 
-    const outputUrl = status.outputs[key]
-    if (!outputUrl) {
-      return NextResponse.json(
-        { error: `Output not available for type "${type}"` },
-        { status: 404 }
-      )
-    }
-
-    const res = await getFile(outputUrl)
-    const blob = await res.blob()
-
-    let contentType = res.headers.get('content-type') || 'application/octet-stream'
-    let filename = `${jobId}-${type}`
-
-    switch (type) {
-      case 'raw-text':
-      case 'normalized-text':
-      case 'rewritten-text':
-      case 'md':
-      case 'rewrite-map':
-      case 'report':
-      case 'toc':
-        contentType = 'text/markdown'
-        filename += type === 'report' ? '-report.md' : '.md'
-        if (type === 'rewrite-map') filename += '' // déjà .md ci-dessus
-        if (type === 'toc') filename = `${jobId}-toc.md`
-        break
-      case 'images-manifest':
-        contentType = 'application/json'
-        filename += '.json'
-        break
-      case 'rendered-html':
-      case 'html':
-        contentType = 'text/html'
-        filename += '.html'
-        break
-      case 'rendered-markdown':
-        contentType = 'text/markdown'
-        filename += '.md'
-        break
-      case 'pdf-output':
-      case 'pdf':
-        contentType = 'application/pdf'
-        filename += '.pdf'
-        break
-      case 'epub':
-        contentType = 'application/epub+zip'
-        filename += '.epub'
-        break
-    }
-
-    return new NextResponse(blob, {
-      headers: {
-        'Content-Type': contentType,
-        'Content-Disposition': `attachment; filename="${filename}"`
+    // Fallback direct sur le blob si jamais loadJobStatus renvoie null
+    const key = `jobs/${id}/manifest.json`;
+    try {
+      const manifest = await getJSON<any>(key, 8);
+      if (manifest && typeof manifest === 'object') {
+        (manifest as any).id = id;
+        return NextResponse.json(manifest, { status: 200, headers: noStore });
       }
-    })
-  } catch (err) {
-    console.error('Download error:', err)
+    } catch {
+      /* ignore and fall through */
+    }
+
+    return NextResponse.json({ error: 'Job not found', id }, { status: 404, headers: noStore });
+  } catch (e: any) {
     return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+      { error: e?.message || 'Failed to load job status', id },
+      { status: 500, headers: noStore }
+    );
   }
 }
