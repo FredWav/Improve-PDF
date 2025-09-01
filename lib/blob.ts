@@ -29,7 +29,7 @@ function buildKey(file: File | Blob, opts?: SaveBlobOptions): string {
 function requireReadWriteToken(): string {
   const token = process.env.BLOB_READ_WRITE_TOKEN;
   if (!token) {
-    throw new Error('Missing BLOB_READ_WRITE_TOKEN environment variable.');
+    throw new Error('Missing BLOB_READ_WRITE_TOKEN environment variable. Configure Vercel Blob in Project Settings.');
   }
   return token;
 }
@@ -58,7 +58,6 @@ export async function saveBlob(file: File | Blob, opts?: SaveBlobOptions): Promi
     putResult = await put(key, file, putOptions);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    // Collision non prévue → 1 retry en overwrite
     if (message.includes('already exists') && opts?.allowOverwrite !== true) {
       putOptions.allowOverwrite = true;
       putOptions.addRandomSuffix = false;
@@ -88,21 +87,33 @@ export async function deleteBlob(key: string) {
   await del(key, { token });
 }
 
-/** Tente d’abord de résoudre via list() (le plus fiable), puis via un host public éventuel, sinon domaine générique. */
+/**
+ * Résolution robuste d’un blob :
+ * 1) on tente d’abord list() (fiable pour le bon bucket)
+ * 2) on essaie l’hôte public si défini (BLOB_PUBLIC_BASE_URL)
+ * 3) on finit sur le domaine générique blob.vercel-storage.com
+ */
 async function fetchOrResolveBlob(pathOrUrl: string, maxRetries = 8): Promise<Response> {
   const isFull = /^https?:\/\//i.test(pathOrUrl);
   const rwToken = process.env.BLOB_READ_WRITE_TOKEN || '';
   const roToken = process.env.BLOB_READ_ONLY_TOKEN || '';
   const token = rwToken || roToken;
-  const authHeader = token ? { Authorization: `Bearer ${token}` } : {};
-  const noCache = { 'Cache-Control': 'no-cache', Pragma: 'no-cache' };
+
+  // headers no-store + Authorization conditionnelle, en respectant HeadersInit
+  const makeHeaders = () => {
+    const h = new Headers();
+    h.set('Cache-Control', 'no-cache');
+    h.set('Pragma', 'no-cache');
+    if (token) h.set('Authorization', `Bearer ${token}`);
+    return h;
+  };
 
   const tryFetch = async (url: string) => {
     let lastError: unknown = null;
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
         const res = await fetch(url, {
-          headers: { ...authHeader, ...noCache },
+          headers: makeHeaders(),
           cache: 'no-store',
         });
         if (res.ok) return res;
@@ -123,24 +134,28 @@ async function fetchOrResolveBlob(pathOrUrl: string, maxRetries = 8): Promise<Re
 
   const key = pathOrUrl.replace(/^\//, '');
 
-  // 2) **D’abord** résolution via list() (fiable pour n’importe quel bucket)
+  // 2) list() (prioritaire)
   try {
     const out = await list({ prefix: key, token });
     const hit: any = (out as any)?.blobs?.find((b: any) => b.pathname === key);
     if (hit?.url) {
       return await tryFetch(hit.url);
     }
-  } catch { /* on essaie les fallbacks */ }
+  } catch {
+    // on tente les fallbacks
+  }
 
-  // 3) Host public si fourni dans l’env (optionnel)
+  // 3) Host public optionnel
   const publicHost = process.env.BLOB_PUBLIC_BASE_URL; // ex: xxxx.public.blob.vercel-storage.com
   if (publicHost) {
     try {
       return await tryFetch(`https://${publicHost}/${key}`);
-    } catch { /* on termine par le générique */ }
+    } catch {
+      // on termine par le générique
+    }
   }
 
-  // 4) Domaine générique (peut 404 si le bucket ne correspond pas)
+  // 4) Domaine générique (peut 404 si bucket différent)
   return await tryFetch(`https://blob.vercel-storage.com/${key}`);
 }
 
