@@ -1,6 +1,6 @@
 import { inngest } from './client';
 import { getJob, updateJob } from '../lib/jobs';
-import pdf from 'pdf-parse';
+// On supprime "pdf-parse" des imports en haut du fichier
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
 // Initialise le client Google AI avec la clé API stockée sur Vercel
@@ -8,8 +8,6 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash"});
 
 export const processEbook = inngest.createFunction(
-  // --- LA CORRECTION EST ICI ---
-  // On supprime la configuration du timeout pour utiliser la valeur par défaut et résoudre l'erreur.
   { id: 'process-ebook-job' },
   { event: 'app/job.created' },
   async ({ event, step }) => {
@@ -28,6 +26,10 @@ export const processEbook = inngest.createFunction(
     });
 
     const textContent = await step.run('extract-text-from-pdf', async () => {
+      // --- LA CORRECTION EST ICI ---
+      // On importe dynamiquement pdf-parse ici, seulement quand on en a besoin.
+      const pdf = (await import('pdf-parse')).default;
+
       const response = await fetch(job.inputFileUrl!);
       const arrayBuffer = await response.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
