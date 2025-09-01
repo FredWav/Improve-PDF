@@ -16,21 +16,20 @@ export function HomePageClient() {
     setError(null);
     setJob(null);
 
-    // 1. On prépare le fichier pour l'envoi
+    // 1. On prépare le fichier pour l'envoi dans un objet FormData
     const formData = new FormData();
     formData.append('file', file);
 
     try {
-      // 2. On envoie le fichier à l'API
-      //    LA CORRECTION EST ICI : on ne met PAS de "headers" manuellement.
-      //    Le navigateur s'en occupe pour nous, c'est ce qui résout votre erreur.
+      // 2. On envoie le fichier à l'API.
+      // LA CORRECTION EST ICI : on ne met PAS de "headers" manuellement.
+      // Le navigateur s'en occupe pour nous, c'est ce qui résout votre erreur.
       const response = await fetch('/api/enqueue', {
         method: 'POST',
         body: formData,
       });
 
       if (!response.ok) {
-        // Si le serveur renvoie une erreur (ex: 500)
         const errorData = await response.json();
         throw new Error(errorData.error || 'Impossible de démarrer le traitement.');
       }
@@ -64,19 +63,21 @@ export function HomePageClient() {
           if (response.ok) {
             const updatedJob = await response.json();
             setJob(updatedJob);
-            // Si le job est terminé ou a échoué, on arrête de vérifier
             if (updatedJob.status === 'completed' || updatedJob.status === 'failed') {
               clearInterval(intervalId);
             }
+          } else {
+            // Si le statut renvoie une erreur (ex: 404), on arrête de vérifier.
+            setError('Impossible de récupérer le statut du job.');
+            clearInterval(intervalId);
           }
         } catch (err) {
-          console.error('Erreur lors de la récupération du statut du job:', err);
           setError('Impossible de mettre à jour le statut du job.');
           clearInterval(intervalId);
         }
       }, 2000);
 
-      // Nettoyage de l'intervalle si le composant est démonté
+      // Nettoyage de l'intervalle quand le composant n'est plus affiché
       return () => clearInterval(intervalId);
     }
   }, [job]);
