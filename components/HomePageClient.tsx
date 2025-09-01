@@ -5,7 +5,7 @@ import { UploadZone } from './UploadZone';
 import { JobsPanel } from './JobsPanel';
 import { Job } from '@/types/job';
 
-// On utilise "export function" (exportation nommée)
+// On utilise bien "export function" (exportation nommée)
 export function HomePageClient() {
   const [job, setJob] = useState<Job | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -20,7 +20,6 @@ export function HomePageClient() {
     formData.append('file', file);
 
     try {
-      // On envoie le fichier SANS header 'Content-Type' manuel
       const response = await fetch('/api/upload', {
         method: 'POST',
         body: formData,
@@ -50,7 +49,6 @@ export function HomePageClient() {
     }
   }, []);
 
-  // On vérifie le statut du job toutes les 2 secondes
   useEffect(() => {
     if (job?.status === 'running' || job?.status === 'pending') {
       const intervalId = setInterval(async () => {
