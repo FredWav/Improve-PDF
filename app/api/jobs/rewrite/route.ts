@@ -55,7 +55,7 @@ export async function POST(req: Request) {
     // Découpe par titres
     const sections = splitMarkdownByHeadings(normalizedMd);
     if (!sections.length) {
-      await addJobLog(id, 'warning', 'Aucune section détectée. Réécriture sautée, on conserve le texte.');
+      await addJobLog(id, 'warn', 'Aucune section détectée. Réécriture sautée, on conserve le texte.');
       const mdUrl = await saveProcessingData(id, 'rewrite', normalizedMd, 'rewritten.md');
       await addJobOutput(id, 'rewrittenText', mdUrl);
       await updateStepStatus(id, 'rewrite', 'COMPLETED', 'Aucune section — texte conservé');
@@ -70,12 +70,11 @@ export async function POST(req: Request) {
     for (let i = 0; i < sections.length; i++) {
       const sec = sections[i];
       const words = (sec.content.match(/\S+/g) || []).length;
-      await addJobLog(id, 'fetch', `Réécriture section #${i + 1}/${sections.length} (${words} mots)`);
+      await addJobLog(id, 'info', `Réécriture section #${i + 1}/${sections.length} (${words} mots)`);
 
       try {
         const out = await rewriteSectionStrict(sec.content, {
           stylePreset: stylePreset || 'neutre',
-          // bornes prudentes pour éviter les 413 / 400 context
           maxInputChars: 12000,
           maxOutputTokens: 900,
           retries: 4,
@@ -92,7 +91,7 @@ export async function POST(req: Request) {
           failCount++;
           await addJobLog(
             id,
-            'warning',
+            'warn',
             `Section #${i + 1} renvoyée vide par l’IA — on conserve le texte original.`,
           );
         }
@@ -131,7 +130,7 @@ export async function POST(req: Request) {
       );
       await addJobLog(
         id,
-        'warning',
+        'warn',
         `Aucune section réécrite par l’IA. Tout a été conservé. Durée ${took}s.`,
       );
     } else if (failCount > 0) {
@@ -143,7 +142,7 @@ export async function POST(req: Request) {
       );
       await addJobLog(
         id,
-        'warning',
+        'warn',
         `Certaines sections ont échoué, texte original conservé pour celles-ci.`,
       );
     } else {
@@ -166,7 +165,6 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, mdUrl, mapUrl }, { status: 200 });
   } catch (e: any) {
-    // Échec “global” (avant génération de fichiers) → statut FAILED, logs explicites
     const msg = e?.message || 'rewrite failed';
     try {
       const { id } = await req.json().catch(() => ({ id: undefined }));
@@ -174,9 +172,7 @@ export async function POST(req: Request) {
         await addJobLog(id, 'error', `Échec global rewrite: ${msg}`);
         await updateStepStatus(id, 'rewrite', 'FAILED', msg);
       }
-    } catch {
-      /* ignore */
-    }
+    } catch { /* ignore */ }
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
