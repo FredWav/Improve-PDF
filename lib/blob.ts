@@ -15,7 +15,7 @@ export interface StoredBlobResult extends PutBlobResult {
   uploadedAt: string;
 }
 
-/** Construit une clé stable. Si prefix/filename sont fournis, on concatène. */
+/** Construit une clé stable. */
 function buildKey(file: File | Blob, opts?: SaveBlobOptions): string {
   if (opts?.key) return opts.key.replace(/^\//, '');
   const name = (opts?.filename || 'file').replace(/^\//, '');
@@ -29,7 +29,7 @@ function buildKey(file: File | Blob, opts?: SaveBlobOptions): string {
 function requireReadWriteToken(): string {
   const token = process.env.BLOB_READ_WRITE_TOKEN;
   if (!token) {
-    throw new Error('Missing BLOB_READ_WRITE_TOKEN environment variable. Configure Vercel Blob in Project Settings.');
+    throw new Error('Missing BLOB_READ_WRITE_TOKEN environment variable.');
   }
   return token;
 }
@@ -38,8 +38,8 @@ function requireReadWriteToken(): string {
 export async function saveBlob(file: File | Blob, opts?: SaveBlobOptions): Promise<StoredBlobResult> {
   const key = buildKey(file, opts);
   const token = requireReadWriteToken();
-
   const size = (file as any)?.size ?? 0;
+
   const putOptions: any = {
     access: opts?.access ?? 'public',
     token,
@@ -76,7 +76,7 @@ export async function saveBlob(file: File | Blob, opts?: SaveBlobOptions): Promi
   return { ...putResult, size, uploadedAt };
 }
 
-/** Liste les blobs par préfixe */
+/** Liste les blobs par préfixe (URL publiques résolues côté API Vercel) */
 export async function listBlobs(prefix: string) {
   const token = process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_READ_ONLY_TOKEN;
   return list({ prefix, token });
@@ -88,21 +88,21 @@ export async function deleteBlob(key: string) {
   await del(key, { token });
 }
 
-/** Résout un path 'jobs/..' en URL publique robuste, puis fait le fetch avec retries. */
+/** Tente d’abord de résoudre via list() (le plus fiable), puis via un host public éventuel, sinon domaine générique. */
 async function fetchOrResolveBlob(pathOrUrl: string, maxRetries = 8): Promise<Response> {
   const isFull = /^https?:\/\//i.test(pathOrUrl);
-  const token = process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_READ_ONLY_TOKEN;
+  const rwToken = process.env.BLOB_READ_WRITE_TOKEN || '';
+  const roToken = process.env.BLOB_READ_ONLY_TOKEN || '';
+  const token = rwToken || roToken;
+  const authHeader = token ? { Authorization: `Bearer ${token}` } : {};
+  const noCache = { 'Cache-Control': 'no-cache', Pragma: 'no-cache' };
 
   const tryFetch = async (url: string) => {
     let lastError: unknown = null;
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
         const res = await fetch(url, {
-          headers: {
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-            'Cache-Control': 'no-cache',
-            'Pragma': 'no-cache',
-          },
+          headers: { ...authHeader, ...noCache },
           cache: 'no-store',
         });
         if (res.ok) return res;
@@ -110,7 +110,6 @@ async function fetchOrResolveBlob(pathOrUrl: string, maxRetries = 8): Promise<Re
       } catch (e) {
         lastError = e;
       }
-      // backoff progressif
       if (attempt < maxRetries - 1) {
         const delay = Math.min(250 * Math.pow(2, attempt), 2000);
         await new Promise(r => setTimeout(r, delay));
@@ -122,25 +121,26 @@ async function fetchOrResolveBlob(pathOrUrl: string, maxRetries = 8): Promise<Re
   // 1) URL complète
   if (isFull) return tryFetch(pathOrUrl);
 
-  // 2) Hôte public connu
   const key = pathOrUrl.replace(/^\//, '');
-  const publicHost = process.env.BLOB_PUBLIC_BASE_URL; // ex: xxx.public.blob.vercel-storage.com
-  if (publicHost) {
-    try {
-      return await tryFetch(`https://${publicHost}/${key}`);
-    } catch { /* fallback */ }
-  }
 
-  // 3) Résolution via list() (plus fiable si token dispo)
+  // 2) **D’abord** résolution via list() (fiable pour n’importe quel bucket)
   try {
     const out = await list({ prefix: key, token });
     const hit: any = (out as any)?.blobs?.find((b: any) => b.pathname === key);
     if (hit?.url) {
       return await tryFetch(hit.url);
     }
-  } catch { /* fallback */ }
+  } catch { /* on essaie les fallbacks */ }
 
-  // 4) Domaine générique (peut ne pas marcher selon le bucket)
+  // 3) Host public si fourni dans l’env (optionnel)
+  const publicHost = process.env.BLOB_PUBLIC_BASE_URL; // ex: xxxx.public.blob.vercel-storage.com
+  if (publicHost) {
+    try {
+      return await tryFetch(`https://${publicHost}/${key}`);
+    } catch { /* on termine par le générique */ }
+  }
+
+  // 4) Domaine générique (peut 404 si le bucket ne correspond pas)
   return await tryFetch(`https://blob.vercel-storage.com/${key}`);
 }
 
