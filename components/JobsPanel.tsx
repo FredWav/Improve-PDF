@@ -1,15 +1,16 @@
 "use client";
 
 import { Job } from "@/types/job";
-import { ProgressSteps } from "./ProgressSteps";
+// LA CORRECTION EST ICI : on retire les accolades {} autour de ProgressSteps
+import ProgressSteps from "./ProgressSteps";
 
-// 1. On définit le "contrat" (Props) que ce composant accepte.
+// On définit le "contrat" (Props) que ce composant accepte.
 interface JobsPanelProps {
   job: Job | null;
   error: string | null;
 }
 
-// 2. Le composant accepte les props 'job' et 'error'.
+// Le composant accepte les props 'job' et 'error'.
 export function JobsPanel({ job, error }: JobsPanelProps) {
   // Cas 1 : Il y a une erreur
   if (error) {
@@ -47,7 +48,6 @@ export function JobsPanel({ job, error }: JobsPanelProps) {
       <p className="mt-1 text-sm text-gray-600 truncate" title={job.filename}>Fichier : {job.filename}</p>
 
       <div className="mt-4">
-        {/* On suppose ici que vous avez un composant ProgressSteps qui accepte une liste d'étapes */}
         <ProgressSteps steps={job.steps} />
       </div>
     </div>
