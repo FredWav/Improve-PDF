@@ -1,51 +1,34 @@
-export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
-
 import { NextResponse } from 'next/server';
-import { loadJobStatus } from '@/lib/status';
-import { getJSON } from '@/lib/blob';
+import { getJob } from '@/lib/jobs'; // On utilise la nouvelle fonction centralisée
 
-type Params = { params: { id?: string } };
-
-const noStore = {
-  'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
-  Pragma: 'no-cache',
-  Expires: '0',
-  'CDN-Cache-Control': 'no-store',
-  'Vercel-CDN-Cache-Control': 'no-store',
+type DownloadRouteParams = {
+  params: {
+    jobId: string;
+    type: string; // pdf, epub, etc.
+  };
 };
 
-export async function GET(_req: Request, { params }: Params) {
-  const id = params?.id;
-  if (!id) {
-    return NextResponse.json({ error: 'Missing id' }, { status: 400, headers: noStore });
-  }
+export async function GET(request: Request, { params }: DownloadRouteParams) {
+  const { jobId, type } = params;
 
   try {
-    // Lecture robuste via lib/status (préférée)
-    const job = await loadJobStatus(id);
-    if (job) {
-      (job as any).id = id;
-      return NextResponse.json(job, { status: 200, headers: noStore });
+    const job = await getJob(jobId);
+
+    if (!job) {
+      return NextResponse.json({ error: 'Job non trouvé.' }, { status: 404 });
     }
 
-    // Fallback direct sur le blob si jamais loadJobStatus renvoie null
-    const key = `jobs/${id}/manifest.json`;
-    try {
-      const manifest = await getJSON<any>(key, 8);
-      if (manifest && typeof manifest === 'object') {
-        (manifest as any).id = id;
-        return NextResponse.json(manifest, { status: 200, headers: noStore });
-      }
-    } catch {
-      /* ignore and fall through */
+    // On vérifie si le job est terminé et s'il a bien une URL de sortie
+    if (job.status !== 'completed' || !job.outputFileUrl) {
+      return NextResponse.json({ error: 'Le fichier n\'est pas encore prêt ou le traitement a échoué.' }, { status: 400 });
     }
 
-    return NextResponse.json({ error: 'Job not found', id }, { status: 404, headers: noStore });
-  } catch (e: any) {
-    return NextResponse.json(
-      { error: e?.message || 'Failed to load job status', id },
-      { status: 500, headers: noStore }
-    );
+    // La solution la plus simple et la plus robuste est de rediriger 
+    // l'utilisateur directement vers l'URL du fichier stocké sur Vercel Blob.
+    return NextResponse.redirect(job.outputFileUrl);
+
+  } catch (error) {
+    console.error(`Erreur pour le téléchargement du job ${jobId}:`, error);
+    return NextResponse.json({ error: 'Erreur interne du serveur.' }, { status: 500 });
   }
 }
