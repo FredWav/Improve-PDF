@@ -16,7 +16,6 @@
     "test:ci": "jest --ci"
   },
   "dependencies": {
-    "@inngest/sdk": "^3.19.1",
     "@sparticuz/chromium": "138.0.2",
     "@vercel/blob": "1.1.1",
     "@vercel/postgres": "^0.9.0",
