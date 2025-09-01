@@ -1,8 +1,7 @@
-import { inngest } from './client'; // On créera ce petit fichier client juste après
+import { inngest } from './client';
 import { getJob, updateJob } from '../lib/jobs';
 import pdf from 'pdf-parse';
 
-// Cette fonction est le "worker". Elle se déclenche quand Inngest reçoit l'événement 'app/job.created'.
 export const processEbook = inngest.createFunction(
   { id: 'process-ebook-job' },
   { event: 'app/job.created' },
@@ -28,16 +27,10 @@ export const processEbook = inngest.createFunction(
       return data.text;
     });
 
-    // --- C'est ici que la réécriture avec Gemini aura lieu ---
     const rewrittenText = await step.run('rewrite-text-with-gemini', async () => {
-      // Pour l'instant, on simule l'appel à Gemini.
-      // C'est ici qu'il faudra faire un appel à l'API de Gemini.
-      // Exemple : const result = await gemini.generateContent(textContent);
       console.log(`Réécriture pour le job ${jobId} avec le texte de ${textContent.length} caractères.`);
       return `(Texte réécrit) ${textContent.substring(0, 500)}...`;
     });
-    
-    // TODO: Ajouter les étapes pour les illustrations et la mise en page finale
 
     await step.run('update-status-to-completed', async () => {
       await updateJob(jobId, 'completed');
