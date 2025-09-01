@@ -1,7 +1,6 @@
 import { sql } from '@vercel/postgres';
 import { Job, JobStep, JobStatus, StepStatus } from '@/types/job';
 
-// Crée un nouveau job dans la base de données
 export async function createJob(id: string, filename: string, inputFileUrl: string): Promise<Job> {
   const initialSteps: JobStep[] = [
     { name: 'Téléchargement', status: 'completed' },
@@ -20,7 +19,6 @@ export async function createJob(id: string, filename: string, inputFileUrl: stri
   return job;
 }
 
-// Récupère un job depuis la base de données
 export async function getJob(id: string): Promise<Job | null> {
   const { rows } = await sql`SELECT * FROM jobs WHERE id = ${id};`;
   if (rows.length === 0) return null;
@@ -37,7 +35,6 @@ export async function getJob(id: string): Promise<Job | null> {
   };
 }
 
-// Met à jour un job
 export async function updateJob(id: string, newStatus: JobStatus, stepToUpdate?: { name: string; status: StepStatus }) {
     const job = await getJob(id);
     if (!job) throw new Error(`Job non trouvé: ${id}`);
