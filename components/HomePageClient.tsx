@@ -10,19 +10,15 @@ export function HomePageClient() {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
-  // --- NOUVELLE FONCTION AMÉLIORÉE ---
-  // Tente de récupérer le statut d'un job, avec plusieurs tentatives en cas d'erreur 404.
   const fetchJobStatusWithRetry = async (jobId: string, retries = 3, delay = 500) => {
     for (let i = 0; i < retries; i++) {
       const response = await fetch(`/api/status/${jobId}`);
       if (response.ok) {
         return await response.json();
       }
-      // Si c'est une erreur 404, on attend un peu et on réessaie.
       if (response.status === 404) {
-        await new Promise(res => setTimeout(res, delay * (i + 1))); // Le délai augmente à chaque essai
+        await new Promise(res => setTimeout(res, delay * (i + 1)));
       } else {
-        // Pour une autre erreur (ex: 500), on abandonne tout de suite.
         throw new Error(`Erreur serveur inattendue: ${response.status}`);
       }
     }
@@ -49,9 +45,6 @@ export function HomePageClient() {
       }
 
       const { jobId } = await response.json();
-      
-      // --- LA CORRECTION EST ICI ---
-      // On utilise la nouvelle fonction "patiente" pour récupérer le statut initial.
       const jobData = await fetchJobStatusWithRetry(jobId);
       setJob(jobData);
 
@@ -64,7 +57,6 @@ export function HomePageClient() {
     }
   }, []);
 
-  // Le reste du fichier (useEffect pour le polling, etc.) ne change pas.
   useEffect(() => {
     if (job?.status === 'running' || job?.status === 'pending') {
       const intervalId = setInterval(async () => {
